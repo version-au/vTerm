@@ -1,0 +1,25 @@
+vTerm uses these, with thanks:
+
+vSuite.Core - the suite's shared library (theme, windows, updates)
+  (c) 2026 Steven (version-au) - https://github.com/version-au/vSuite.Core
+  Licence: MIT.
+
+xterm.js and its fit, serialize, unicode11 and web-links add-ons - the terminal itself (src\Terminal, unchanged)
+  (c) The xterm.js authors, SourceLair Private Company and Christopher Jeffrey - https://github.com/xtermjs/xterm.js
+  Licence: MIT.
+
+Microsoft Edge WebView2 SDK - the browser view (the browser engine itself is part of Windows)
+  (c) Microsoft Corporation - https://aka.ms/webview2
+  Licence: BSD 3-clause (see the Microsoft.Web.WebView2 package).
+
+SSH.NET - SSH and SFTP
+  (c) Renci and the SSH.NET contributors - https://github.com/sshnet/SSH.NET
+  Licence: MIT.
+
+BouncyCastle.Cryptography - used by SSH.NET
+  (c) The Legion of the Bouncy Castle Inc. - https://www.bouncycastle.org/csharp
+  Licence: MIT.
+
+.NET - the runtime built into the app
+  (c) .NET Foundation and Contributors - https://dotnet.microsoft.com
+  Licence: MIT.

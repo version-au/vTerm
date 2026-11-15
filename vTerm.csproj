@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>vTerm</AssemblyName>
+    <RootNamespace>vTerm</RootNamespace>
+    <StartupObject>vTerm.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- made by running vTerm.exe with make-icon (the drawing is src\Ui\Brand.cs), in vShell's default colours; the window's icon follows the theme -->
+    <ApplicationIcon>vterm.ico</ApplicationIcon>
+    <Version>0.1.9</Version>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- the terminal's display: WebView2 shows xterm.js (the page and scripts below are built into vTerm.exe) -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <!-- the file panel (SFTP) and copying your key to a server -->
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <EmbeddedResource Include="src\Terminal\*.html;src\Terminal\*.js;src\Terminal\*.css;src\Terminal\*.txt" LogicalName="vTerm.Terminal.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- the suite's shared library (git submodule vSuite.Core): theme, glass, styles, questions, log, updater, Options blocks -->
+  <ItemGroup>
+    <ProjectReference Include="vSuite.Core\vSuite.Core\vSuite.Core.csproj" />
+    <Compile Remove="vSuite.Core\**" />
+    <Page Remove="vSuite.Core\**" />
+    <None Remove="vSuite.Core\**" />
+    <EmbeddedResource Remove="vSuite.Core\**" />
+    <Resource Remove="vSuite.Core\**" />
+  </ItemGroup>
+
+  <!-- the tests (tests\vTerm.Tests) are their own project: dotnet test tests\vTerm.Tests -->
+  <ItemGroup>
+    <Compile Remove="tests\**" />
+    <Page Remove="tests\**" />
+    <None Remove="tests\**" />
+    <EmbeddedResource Remove="tests\**" />
+  </ItemGroup>
+
+</Project>
