@@ -496,7 +496,7 @@ namespace vTerm.Ui
             s.Over = false;
             Session me = s;
             // through the tab's owner at the time: the tab may have moved to another terminal since
-            pty.Output += delegate (string text) { if (me.Pty == pty) { lock (me.Pending) me.Pending.Append(text); TerminalView o = me.Owner; if (o != null) o.OutputArrived(); } };
+            pty.Output += delegate (string text) { if (me.Pty == pty) { lock (me.Pending) me.Pending.Append(text); TerminalView o = me.Owner; if (o != null) o.OutputArrived(); HoldBack(me, pty); } };
             pty.Exited += delegate (int code) { Dispatcher.BeginInvoke(new Action(delegate { if (me.Pty == pty && me.Owner != null) me.Owner.Ended(me, code); })); };
             string cmd = s.Conn != null ? TermSsh.CommandLine(s.Conn, s.Remote) : s.Profile.Command;
             try
@@ -609,7 +609,7 @@ namespace vTerm.Ui
         void MoveOut(Session s, Action<Handoff> to)
         {
             if (s == null || s.Moving || !_sessions.Contains(s)) return;
-            FlushOutput();          // the old screen up to date before it's copied
+            FlushOutput(true);      // the old screen up to date before it's copied
             s.Moving = true;
             bool done = false;
             Action<string> go = delegate (string screen)
@@ -694,7 +694,7 @@ namespace vTerm.Ui
         void Ended(Session s, int code)
         {
             if (!_sessions.Contains(s)) return;
-            FlushOutput();
+            FlushOutput(true);
             s.Over = true;
             try { s.Pty.Dispose(); } catch { }
             if (s.Conn != null)
@@ -860,8 +860,36 @@ namespace vTerm.Ui
             Dispatcher.BeginInvoke(new Action(delegate { if (!_flush.IsEnabled) _flush.Start(); }));
         }
 
-        void FlushOutput()
+        /// <summary>
+        /// Output is handed to the screen a piece at a time (PostChars each tick), and a shell that has WaitChars waiting is held
+        /// back until some has gone (HoldBack) - as any terminal does. Without it a runaway command (`cat` of a huge file, `yes`)
+        /// queued without end: memory climbed, Ctrl+C seemed dead until the backlog had drawn, and the screen dropped output.
+        /// </summary>
+        const int PostChars = 128 * 1024, WaitChars = 2 * 1024 * 1024;
+
+        /// <summary>On the shell's reader thread, after it added output: wait (a little) while too much is waiting to be shown.</summary>
+        static void HoldBack(Session s, ConPty pty)
         {
+            for (int i = 0; i < 400; i++)       // 2 s at most a time: a stuck window never stops the shell for good
+            {
+                int waiting;
+                lock (s.Pending) waiting = s.Pending.Length;
+                if (waiting < WaitChars || s.Pty != pty || s.Over) return;
+                System.Threading.Thread.Sleep(5);
+            }
+        }
+
+        /// <summary>all: everything that's waiting now (before a tab moves or ends); otherwise a piece per tab.</summary>
+        void FlushOutput(bool all = false)
+        {
+            // no screen to show it on (WebView2 couldn't start): nothing is kept - it would only pile up
+            if (_webFailed)
+            {
+                foreach (Session x in _sessions.ToArray()) lock (x.Pending) x.Pending.Clear();
+                _flush.Stop();
+                System.Threading.Interlocked.Exchange(ref _flushOn, 0);
+                return;
+            }
             // nothing waiting in any tab: stop until more comes
             // (a tab on its way to another terminal keeps its output for that one)
             bool any = false;
@@ -882,8 +910,10 @@ namespace vTerm.Ui
                 lock (s.Pending)
                 {
                     if (s.Pending.Length == 0) continue;
-                    text = s.Pending.ToString();
-                    s.Pending.Clear();
+                    int take = all ? s.Pending.Length : Math.Min(s.Pending.Length, PostChars);
+                    if (take < s.Pending.Length && take > 1 && char.IsHighSurrogate(s.Pending[take - 1])) take--;     // never half a character
+                    text = s.Pending.ToString(0, take);
+                    s.Pending.Remove(0, take);
                 }
                 Post(new { t = "o", id = s.Id, d = text });
             }

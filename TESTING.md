@@ -11,6 +11,10 @@ Test with a scratch settings folder so your own vTerm is never touched: `set VTE
 5. A connection with a jump host that asks for a password, and a saved password for the target: the jump's prompt isn't answered with the target's password (the sign-in to the jump fails; ssh says so). A Key connection with a saved passphrase whose key the server refuses: no password is sent. A wrong saved password: one "Permission denied", not three.
 6. On a server, make ~/.ssh/authorized_keys end without a line ending (`printf "ssh-ed25519 AAA old" > ~/.ssh/authorized_keys`), then Copy my key to this server: the file has two lines and both keys work. Again: nothing is added twice.
 
+## 0.1.10: floods of output, a faster start
+1. In a tab: `cat` a file of a few hundred MB (or `yes`): the text streams steadily, vTerm's and WebView2's memory stay level, Ctrl+C stops it within a second, and typing in another tab stays quick. Ordinary output (dir, a build log) is as fast as before. Closing the tab or the shell ending mid-flood: its last lines still come before "[ended]".
+2. With no vTerm running, start it (the icon, Open in vTerm, vShell's Terminal button): the window / drop-down is there about 1.5 s sooner than 0.1.9. With vTerm already running: a second start still hands over to it (a new tab / window) at once.
+
 ## 0.1.9: Open in vTerm opens in the folder. Explorer or vXplorer: right-click a folder (or the empty part of one) > Open in vTerm: the new tab's prompt is in that folder
    (before: the start profile's own folder). With vTerm already running: a new tab in its window, in that folder.. vTerm.exe --dir "C:\some folder" from a command line: the same. --profile "…" --dir "…": that profile, in that folder.. Test hooks: "dump" now shows each tab's folder ("[in C:\…]").
 

@@ -6,6 +6,8 @@
 - The file panel works on the server its rows came from: switching tabs while it loads can't send a Delete, Rename or upload to the other server, and an upload never lands in the server's root.
 - A saved password is only given to the server it is for (not a jump host), a key's passphrase is never sent as a password, and a wrong saved password is tried once, not three times.
 - Copy my key to this server can't join the new key onto the last line of authorized_keys.
+- A command that floods the screen (cat of a huge file) no longer makes memory climb or Ctrl+C seem dead: output is passed on a piece at a time and the shell waits its turn.
+- vTerm starts about a second and a half sooner when it isn't running yet (vSuite.Core 1.0.41).
 
 ## 0.1.9 · release
 
