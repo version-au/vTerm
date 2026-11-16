@@ -101,7 +101,11 @@ namespace vTerm.Ui
                     ssh.HostKeyReceived += delegate (object s, HostKeyEventArgs e) { CheckHostKey(c, e); };
                     ssh.Connect();
                     string cmd = "umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && " +
-                                 "(grep -qxF '" + publicKey + "' ~/.ssh/authorized_keys || echo '" + publicKey + "' >> ~/.ssh/authorized_keys)";
+                                 // a file whose last line has no line ending (edited by hand): end it first, or the new key would
+                                 // be joined onto that line and neither key would work
+                                 "(grep -qxF '" + publicKey + "' ~/.ssh/authorized_keys || { " +
+                                 "if [ -s ~/.ssh/authorized_keys ] && [ -n \"$(tail -c 1 ~/.ssh/authorized_keys)\" ]; then echo >> ~/.ssh/authorized_keys; fi; " +
+                                 "echo '" + publicKey + "' >> ~/.ssh/authorized_keys; })";
                     SshCommand r = ssh.RunCommand(cmd);
                     ssh.Disconnect();
                     if (r.ExitStatus != 0) return "The server said: " + (string.IsNullOrWhiteSpace(r.Error) ? "exit code " + r.ExitStatus : r.Error.Trim());

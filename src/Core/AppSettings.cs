@@ -54,20 +54,67 @@ namespace vTerm.Core
 
         static string FilePath { get { return Path.Combine(Log.Folder, "settings.json"); } }
 
+        /// <summary>Set by Load when settings.json was there but couldn't be read: what was done about it, for the log and a notice.</summary>
+        public static string LoadNote;
+        bool _noSave, _keepBak;
+
+        static AppSettings Read(string path)
+        {
+            string text = File.ReadAllText(path);
+            if (string.IsNullOrWhiteSpace(text)) throw new InvalidDataException("the file is empty");
+            return JsonSerializer.Deserialize<AppSettings>(text) ?? throw new InvalidDataException("the file holds nothing");
+        }
+
+        /// <summary>
+        /// The settings; new ones when there's no file yet. A file that's there but can't be read is never taken for "no settings"
+        /// (that lost every saved connection): one that's only busy is tried again; a broken one is kept as
+        /// settings.broken-&lt;time&gt;.json and the save before it (settings.json.bak) is used; and when not even a copy can be kept,
+        /// nothing is saved over it this run.
+        /// </summary>
         public static AppSettings Load()
         {
-            try
+            bool there = false;
+            string why = null;
+            for (int tries = 0; tries < 5; tries++)
             {
-                if (File.Exists(FilePath))
+                try
                 {
-                    var s = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath));
-                    if (s != null) { s.Normalize(); return s; }
+                    there = File.Exists(FilePath);
+                    if (!there) break;
+                    AppSettings s = Read(FilePath);
+                    s.Normalize();
+                    return s;
                 }
+                catch (IOException ex) when (tries < 4 && !(ex is InvalidDataException)) { why = ex.Message; System.Threading.Thread.Sleep(200); }
+                catch (Exception ex) { why = ex.Message; break; }
             }
-            catch (Exception ex) { Log.Write("Settings: " + ex.Message); }
-            var fresh = new AppSettings();
-            fresh.Normalize();
-            return fresh;
+            AppSettings use = null;
+            if (there)
+            {
+                Log.Write("Settings: settings.json couldn't be read - " + why);
+                bool kept = false;
+                try
+                {
+                    string aside = Path.Combine(Log.Folder, "settings.broken-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json");
+                    File.Copy(FilePath, aside, true);
+                    kept = true;
+                    Log.Write("Settings: it's kept as " + aside);
+                }
+                catch (Exception ex) { Log.Write("Settings: couldn't keep a copy of it - " + ex.Message); }
+                try
+                {
+                    if (File.Exists(FilePath + ".bak")) { use = Read(FilePath + ".bak"); Log.Write("Settings: using settings.json.bak (the save before the last one)"); }
+                }
+                catch (Exception ex) { Log.Write("Settings: settings.json.bak can't be read either - " + ex.Message); }
+                if (use == null) use = new AppSettings { ImportedFromVShell = true };      // not a first start: nothing is brought over again
+                use._noSave = !kept;      // no copy of the unreadable file: leave it alone
+                use._keepBak = true;      // the first save mustn't put the broken file over the good .bak
+                LoadNote = kept ? "settings.json couldn't be read; a copy is kept beside it (settings.broken-…json)."
+                                : "settings.json couldn't be read or copied, so nothing is saved over it until " + App.Name + " starts again.";
+            }
+            if (use == null) use = new AppSettings();
+            use.Normalize();
+            return use;
         }
 
         /// <summary>Values from an old or hand-edited file put right.</summary>
@@ -88,9 +135,13 @@ namespace vTerm.Core
         public void Save()
         {
             if (_soon != null) _soon.Stop();
+            if (_noSave) return;
             try
             {
                 Directory.CreateDirectory(Log.Folder);
+                // the file as it is (read or written by us, so it's good) stays as settings.json.bak
+                if (_keepBak) _keepBak = false;
+                else try { if (File.Exists(FilePath)) File.Copy(FilePath, FilePath + ".bak", true); } catch { }
                 string tmp = FilePath + ".tmp";
                 File.WriteAllText(tmp, JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true }));
                 File.Move(tmp, FilePath, true);

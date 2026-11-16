@@ -514,7 +514,7 @@ namespace vTerm.Ui
             _fileList.Margin = new Thickness(4, 0, 4, 4);
             sv.AllowDrop = true;
             sv.Background = Brushes.Transparent;
-            sv.DragOver += delegate (object s, DragEventArgs e) { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) && _filesConn != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
+            sv.DragOver += delegate (object s, DragEventArgs e) { e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) && _listedConn != null ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true; };
             sv.Drop += delegate (object s, DragEventArgs e)
             {
                 var files = e.Data.GetData(DataFormats.FileDrop) as string[];
@@ -581,7 +581,13 @@ namespace vTerm.Ui
             }
         }
 
-        sealed class Entry { public string Name, Full; public bool Dir, Link; public long Size; public DateTime When; }
+        sealed class Entry { public string Name, Full; public bool Dir, Link; public long Size; public DateTime When; public TermConnection Conn; }
+        /// <summary>
+        /// The server and folder the rows on show were listed from - what every action on them (and Upload, New folder, a drop) works
+        /// on. Not _filesConn / _filesPath: those change the moment another tab comes in front, while the old rows are still there.
+        /// </summary>
+        TermConnection _listedConn;
+        string _listedPath = "";
         List<Entry> _lastEntries;
 
         /// <summary>List a folder (null = the tab in front's connection, where it was / its start folder).</summary>
@@ -607,6 +613,8 @@ namespace vTerm.Ui
                 return;
             }
             int job = ++_job;
+            // another server's rows don't stay on show while this one connects (a click on them would be on the wrong server)
+            if (_listedConn != null && _listedConn.Id != c.Id) { _fileList.Children.Clear(); _lastEntries = null; _listedConn = null; _listedPath = ""; _path.Text = ""; }
             SetStatus("Connecting to " + c.Target + "…");
             string want = path;
             Task.Run(delegate
@@ -622,7 +630,7 @@ namespace vTerm.Ui
                         foreach (var f in cl.ListDirectory(dir))
                         {
                             if (f.Name == "." || f.Name == "..") continue;
-                            list.Add(new Entry { Name = f.Name, Full = f.FullName, Dir = f.IsDirectory, Link = f.IsSymbolicLink, Size = f.Length, When = f.LastWriteTime });
+                            list.Add(new Entry { Name = f.Name, Full = f.FullName, Dir = f.IsDirectory, Link = f.IsSymbolicLink, Size = f.Length, When = f.LastWriteTime, Conn = c });
                         }
                     }
                     list.Sort(delegate (Entry x, Entry y) { return x.Dir != y.Dir ? (x.Dir ? -1 : 1) : string.Compare(x.Name, y.Name, StringComparison.OrdinalIgnoreCase); });
@@ -630,6 +638,8 @@ namespace vTerm.Ui
                     {
                         if (job != _job) return;
                         _filesPath = dir;
+                        _listedConn = c;
+                        _listedPath = dir;
                         _path.Text = dir;
                         SetStatus(c.Target + "  ·  " + list.Count + " item" + (list.Count == 1 ? "" : "s"));
                         RenderFiles(list);
@@ -642,6 +652,7 @@ namespace vTerm.Ui
                     {
                         if (job != _job) return;
                         _fileList.Children.Clear();
+                        _lastEntries = null; _listedConn = null; _listedPath = "";
                         SetStatus("Couldn't open " + (string.IsNullOrEmpty(want) ? c.Target : want) + ": " + ex.Message);
                     }));
                 }
@@ -706,7 +717,7 @@ namespace vTerm.Ui
                 Item(m, "Download…", delegate { Download(e); });
             }
             Item(m, "Copy path", delegate { try { Clipboard.SetText(e.Full); } catch { } });
-            if (e.Dir) Item(m, "Open a terminal here", delegate { if (_filesConn != null) Connect(_filesConn, "cd '" + e.Full.Replace("'", "'\\''") + "' && exec $SHELL -l"); });
+            if (e.Dir) Item(m, "Open a terminal here", delegate { if (e.Conn != null) Connect(e.Conn, "cd '" + e.Full.Replace("'", "'\\''") + "' && exec $SHELL -l"); });
             m.Items.Add(new Separator());
             Item(m, "Rename…", delegate { Rename(e); });
             Item(m, "Delete…", delegate { Delete(e); });
@@ -714,10 +725,10 @@ namespace vTerm.Ui
         }
 
         /// <summary>Do something with the file panel's client on a background thread, then show the folder again.</summary>
-        void Job(string doing, Action<SftpClient> work, bool reload = true)
+        void Job(string doing, Action<SftpClient> work, bool reload = true, TermConnection on = null)
         {
-            TermConnection c = _filesConn;
-            if (c == null) return;
+            TermConnection c = on ?? _listedConn;     // the server the rows came from
+            if (c == null) { SetStatus("Wait for the folder to show first."); return; }
             SetStatus(doing + "…");
             Task.Run(delegate
             {
@@ -725,7 +736,7 @@ namespace vTerm.Ui
                 {
                     SftpClient cl = Client(c);
                     lock (cl) work(cl);
-                    Dispatcher.BeginInvoke(new Action(delegate { SetStatus(""); if (reload) LoadFiles(_filesPath); }));
+                    Dispatcher.BeginInvoke(new Action(delegate { SetStatus(""); if (reload && _listedConn != null && _listedConn.Id == c.Id) LoadFiles(_listedPath); }));
                 }
                 catch (Exception ex)
                 {
@@ -742,21 +753,25 @@ namespace vTerm.Ui
 
         void UploadPick()
         {
-            if (_filesConn == null) return;
-            var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "Upload to " + _filesConn.Target + ":" + _filesPath };
+            TermConnection c = _listedConn;
+            string dest = _listedPath;
+            if (c == null || string.IsNullOrEmpty(dest)) { SetStatus("Wait for the folder to show first."); return; }
+            var dlg = new Microsoft.Win32.OpenFileDialog { Multiselect = true, Title = "Upload to " + c.Target + ":" + dest };
             bool ok = Dialog(delegate (Window o) { return dlg.ShowDialog(o) == true; });
-            if (ok) Upload(dlg.FileNames);
+            if (ok) Upload(dlg.FileNames, c, dest);      // where it was when you chose - not where the panel has gone since
         }
 
         /// <summary>Upload files / folders (folders with everything in them) into the folder shown.</summary>
-        void Upload(string[] paths)
+        void Upload(string[] paths, TermConnection c = null, string dest = null)
         {
-            if (_filesConn == null || paths == null || paths.Length == 0) return;
-            string dest = _filesPath;
+            if (paths == null || paths.Length == 0) return;
+            if (c == null) { c = _listedConn; dest = _listedPath; }
+            // no folder on show yet (still connecting, or it couldn't be opened): never guess - "" would be the server's root
+            if (c == null || string.IsNullOrEmpty(dest)) { SetStatus("Wait for the folder to show first."); return; }
             Job("Uploading " + (paths.Length == 1 ? Path.GetFileName(paths[0].TrimEnd('\\')) : paths.Length + " items"), delegate (SftpClient cl)
             {
                 foreach (string p in paths) UploadOne(cl, p, dest);
-            });
+            }, true, c);
         }
 
         void UploadOne(SftpClient cl, string local, string remoteDir)
@@ -785,13 +800,13 @@ namespace vTerm.Ui
             {
                 using (FileStream fs = File.Create(local))
                     cl.DownloadFile(e.Full, fs, delegate (ulong done) { Progress("Downloading " + e.Name, done, e.Size); });
-            }, false);
+            }, false, e.Conn);
         }
 
         /// <summary>Download to a temporary folder and open it with its app (changes aren't sent back).</summary>
         void OpenRemote(Entry e)
         {
-            TermConnection c = _filesConn;
+            TermConnection c = e.Conn;
             if (c == null) return;
             string dir = Path.Combine(Path.GetTempPath(), "vTerm-files", MakeSafe(c.Host));
             string local = Path.Combine(dir, MakeSafe(e.Name));
@@ -801,7 +816,7 @@ namespace vTerm.Ui
                 using (FileStream fs = File.Create(local))
                     cl.DownloadFile(e.Full, fs, delegate (ulong done) { Progress("Opening " + e.Name, done, e.Size); });
                 Process.Start(new ProcessStartInfo(local) { UseShellExecute = true });
-            }, false);
+            }, false, c);
         }
 
         static string MakeSafe(string n)
@@ -812,11 +827,13 @@ namespace vTerm.Ui
 
         void NewFolder()
         {
-            if (_filesConn == null) return;
-            string name = Dialog(delegate (Window o) { return FormWindow.Prompt(o, "New folder", "Name of the new folder in " + _filesPath, ""); });
+            TermConnection c = _listedConn;
+            string dir = _listedPath;
+            if (c == null || string.IsNullOrEmpty(dir)) { SetStatus("Wait for the folder to show first."); return; }
+            string name = Dialog(delegate (Window o) { return FormWindow.Prompt(o, "New folder", "Name of the new folder in " + dir, ""); });
             if (string.IsNullOrWhiteSpace(name)) return;
-            string target = Join(_filesPath, name.Trim());
-            Job("Making " + name.Trim(), delegate (SftpClient cl) { cl.CreateDirectory(target); });
+            string target = Join(dir, name.Trim());
+            Job("Making " + name.Trim(), delegate (SftpClient cl) { cl.CreateDirectory(target); }, true, c);
         }
 
         void Rename(Entry e)
@@ -824,13 +841,13 @@ namespace vTerm.Ui
             string name = Dialog(delegate (Window o) { return FormWindow.Prompt(o, "Rename", "New name for " + e.Name, e.Name); });
             if (string.IsNullOrWhiteSpace(name) || name.Trim() == e.Name) return;
             string target = Join(ParentDir(e.Full), name.Trim());
-            Job("Renaming " + e.Name, delegate (SftpClient cl) { cl.RenameFile(e.Full, target); });
+            Job("Renaming " + e.Name, delegate (SftpClient cl) { cl.RenameFile(e.Full, target); }, true, e.Conn);
         }
 
         void Delete(Entry e)
         {
-            if (!Ask("Delete " + (e.Dir ? "the folder " + e.Full + " and everything in it" : e.Full) + " on " + (_filesConn != null ? _filesConn.Target : "the server") + "?\n\nThis can't be undone.", "vTerm")) return;
-            Job("Deleting " + e.Name, delegate (SftpClient cl) { DeleteOne(cl, e.Full, e.Dir && !e.Link); });
+            if (!Ask("Delete " + (e.Dir ? "the folder " + e.Full + " and everything in it" : e.Full) + " on " + (e.Conn != null ? e.Conn.Target : "the server") + "?\n\nThis can't be undone.", "vTerm")) return;
+            Job("Deleting " + e.Name, delegate (SftpClient cl) { DeleteOne(cl, e.Full, e.Dir && !e.Link); }, true, e.Conn);
         }
 
         static void DeleteOne(SftpClient cl, string path, bool dir)

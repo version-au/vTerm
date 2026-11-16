@@ -3,6 +3,14 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.1.10: connections, the file panel, saved passwords, copying a key
+1. `dotnet test tests\vTerm.Tests`: passes (`SettingsFileTests`, `AskpassTests`).
+2. Close vTerm, cut %APPDATA%\vTerm\settings.json short, start it: the connections are there (from settings.json.bak - the save before), settings.broken-<time>.json holds the broken file, vterm.log says so. With no .bak: no connections, but vShell's old ones are NOT imported over it and the broken file is kept.
+3. Files panel on server A; switch to a tab on server B that takes a moment to connect: A's rows go at once ("Connecting to B…"), so nothing of A can be clicked. Right-click a row > Delete: the question names the server the row is on. Open the Delete question on A, switch tabs behind it, answer Yes: it is deleted on A.
+4. While the panel says "Connecting…" or "Couldn't open …": Upload, New folder and dropping a file say "Wait for the folder to show first" - nothing is put in the server's root.
+5. A connection with a jump host that asks for a password, and a saved password for the target: the jump's prompt isn't answered with the target's password (the sign-in to the jump fails; ssh says so). A Key connection with a saved passphrase whose key the server refuses: no password is sent. A wrong saved password: one "Permission denied", not three.
+6. On a server, make ~/.ssh/authorized_keys end without a line ending (`printf "ssh-ed25519 AAA old" > ~/.ssh/authorized_keys`), then Copy my key to this server: the file has two lines and both keys work. Again: nothing is added twice.
+
 ## 0.1.9: Open in vTerm opens in the folder. Explorer or vXplorer: right-click a folder (or the empty part of one) > Open in vTerm: the new tab's prompt is in that folder
    (before: the start profile's own folder). With vTerm already running: a new tab in its window, in that folder.. vTerm.exe --dir "C:\some folder" from a command line: the same. --profile "…" --dir "…": that profile, in that folder.. Test hooks: "dump" now shows each tab's folder ("[in C:\…]").
 

@@ -103,6 +103,9 @@ namespace vTerm.Core
             if (c.Port != 22) sb.Append(" -p ").Append(c.Port);
             if (c.Auth == "Key" && !string.IsNullOrWhiteSpace(c.KeyFile)) sb.Append(" -i ").Append(Q(Environment.ExpandEnvironmentVariables(c.KeyFile))).Append(" -o IdentitiesOnly=yes");
             if (!string.IsNullOrWhiteSpace(c.Jump)) sb.Append(" -J ").Append(Q(c.Jump));
+            // a saved password is answered for you, so a wrong one would be tried three times in a blink (and get this PC banned
+            // by fail2ban): once is enough
+            if (!string.IsNullOrEmpty(c.Secret) && c.Auth != "Agent") sb.Append(" -o NumberOfPasswordPrompts=1");
             string cmd = remote ?? c.Command;
             if (!string.IsNullOrWhiteSpace(cmd)) sb.Append(" -t");
             sb.Append(' ').Append(Q(c.Target));
@@ -125,6 +128,7 @@ namespace vTerm.Core
             env["VTERM_ASKPASS"] = "1";
             env["VTERM_ASKPASS_SECRET"] = c.Secret;          // the encrypted copy (only this Windows account can read it)
             env["VTERM_ASKPASS_HOST"] = c.Target;
+            env["VTERM_ASKPASS_AUTH"] = c.Auth ?? "";         // what the saved secret is: a password, or a key's passphrase
             return env;
         }
 
@@ -148,6 +152,7 @@ namespace vTerm.Core
                     Console.Out.Flush();
                     return 0;
                 }
+                if (!SecretFits(prompt, host, Environment.GetEnvironmentVariable("VTERM_ASKPASS_AUTH"))) return 1;
                 string secret = vSuite.Secret.Unprotect(Environment.GetEnvironmentVariable("VTERM_ASKPASS_SECRET") ?? "");
                 if (secret.Length == 0) return 1;
                 Console.Out.WriteLine(secret);
@@ -155,6 +160,26 @@ namespace vTerm.Core
                 return 0;
             }
             catch { return 1; }
+        }
+
+        /// <summary>
+        /// Is the saved secret the answer to this prompt? A key's passphrase only answers "Enter passphrase for key …" - never a
+        /// password prompt (the server turned the key down and asks for a password: the passphrase isn't one, and would be sent to
+        /// the server). A password never answers a passphrase prompt, nor a password prompt that names another machine (a jump
+        /// host: "jump@bastion's password:" would have been given this server's password).
+        /// </summary>
+        public static bool SecretFits(string prompt, string target, string auth)
+        {
+            prompt = prompt ?? "";
+            bool passphrase = prompt.IndexOf("passphrase", StringComparison.OrdinalIgnoreCase) >= 0;
+            if (auth == "Key") return passphrase;
+            if (auth == "Password" && passphrase) return false;
+            if (passphrase) return true;
+            // "user@host's password:" / "(user@host) Password:" - the machine it names must be this connection's
+            var m = System.Text.RegularExpressions.Regex.Match(prompt, @"@([^\s'():]+)");
+            if (!m.Success || string.IsNullOrEmpty(target)) return true;
+            string mine = target.Substring(target.LastIndexOf('@') + 1).Trim();
+            return string.Equals(m.Groups[1].Value.Trim(), mine, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>The connections in ~/.ssh/config (named hosts, not patterns), for Import.</summary>
