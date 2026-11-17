@@ -16,7 +16,7 @@ Command line: `vTerm.exe [--new-window] [--profile NAME] [--dir FOLDER] [--run C
 
 ## Licence
 
-Copyright (C) 2026 Steven (version-au). vTerm is free software: you can redistribute it and/or modify it under the terms of the
+Copyright (C) 2026 Steven Van Teylingen (version-au). vTerm is free software: you can redistribute it and/or modify it under the terms of the
 GNU General Public License, version 3 - see [LICENSE](LICENSE). It comes with no warranty. The shared library vSuite.Core is MIT, and
 the parts by others are listed in [THIRD-PARTY.txt](THIRD-PARTY.txt).
 
