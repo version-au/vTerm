@@ -1,7 +1,7 @@
 vTerm uses these, with thanks:
 
 vSuite.Core - the suite's shared library (theme, windows, updates)
-  (c) 2026 Steven (version-au) - https://github.com/version-au/vSuite.Core
+  (c) 2026 Steven Van Teylingen (version-au) - https://github.com/version-au/vSuite.Core
   Licence: MIT.
 
 xterm.js and its fit, serialize, unicode11 and web-links add-ons - the terminal itself (src\Terminal, unchanged)
