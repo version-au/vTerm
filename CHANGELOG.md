@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.1.10
+## 0.1.10 · pre-release
 
 - A settings.json that can't be read no longer loses your saved connections: it is kept (settings.broken-…json), the save before it is used, and vShell's old list is never brought over it.
 - The file panel works on the server its rows came from: switching tabs while it loads can't send a Delete, Rename or upload to the other server, and an upload never lands in the server's root.
