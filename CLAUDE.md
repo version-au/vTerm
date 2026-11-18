@@ -80,7 +80,7 @@ Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine
   fallback, frames at Background priority at most every 8 ms so input comes first; keys via `PressKey` (`KeyMap`: GhosttyKey codes and
   ToUnicodeEx text) - text-typing keys come through TextInput; mouse: selection gestures, or the program's mouse when it asked (Shift
   overrides), the wheel, Ctrl+click links; the scrollbar; the IME window at the cursor). A tab's engine moves with it between windows
-  (no serialising). WPF can't draw colour fonts: emoji are one colour.
+  (no serialising). Emoji (0.2.4): WPF can't draw colour fonts, so `ColorEmoji` has Windows draw an emoji cell's whole cluster (DirectWrite through Direct2D onto a WIC bitmap, colour fonts on; COM by function pointers, vtable slots in the code) into a cached bitmap; grapheme cluster mode (2027) is on by default, so skin tones / joined emoji / VS16 symbols are one two-cell character. Flags stay letters (Windows' emoji font has none).
 - `DropDown` - vShell's drop-down (layered: shadow room, vSuite `Glass`, the card with the text on it; slides with a TranslateTransform),
   placed where the TermRequest says (X / Y / W / H = the card in device pixels, its bar side against the bar). `Handle`
   = toggle / show / hide ("shown" / "hidden"); hides on leave (`LeftSoon`), Shift+Esc, Alt+F4.

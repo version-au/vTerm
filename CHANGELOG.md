@@ -1,5 +1,10 @@
 # vTerm changelog
 
+## 0.2.4
+
+- Emoji in colour, drawn by Windows as everywhere else.
+- Skin tones, joined emoji (a family, the rainbow flag) and symbols like ⚠️ ❤️ show as one full-size emoji, not in pieces.
+
 ## 0.2.3 · pre-release
 
 - The drop-down hides again when you click elsewhere (the desktop, another window, a vShell bar) after opening it with the hotkey or clicking in its text.

@@ -3,6 +3,13 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.4: colour emoji
+1. `Write-Host '😀 ✅ ❌ ⚠️ 🔥 🚀 🐳 ❤️ 💙 👍 👍🏽 👋🏿 👨‍👩‍👧 🏳️‍🌈 🧑‍💻 🇦🇺 |'`: all in colour and full size (two cells), the skin-toned thumb and the family as one picture each, the flag as letters (Windows has no flag emoji), and the `|` right after the last one.
+2. Emoji inside normal text (`build ✅ passed`), in a selection (highlighted), under the cursor, in a bold / coloured line; ✓ ✔ ☐ ★ (text symbols, no emoji marker) stay plain text in the text colour.
+3. Edit a command line with emoji in it (Left / Right / Backspace): the cursor stays on the right character. Over SSH: `echo` the same line in bash, and run htop / vim with emoji in a file name: nothing shifts.
+4. Change the font size and the screen scaling (Settings > Display): the emoji are redrawn sharp at the new size.
+5. vterm.log has no "Colour emoji" line (it says when Direct2D / DirectWrite can't start, and then emoji are in one colour).
+
 ## 0.2.3: the drop-down hides when you leave it
 1. Open the drop-down with vShell's hotkey, click the desktop: it hides. Again, click in its text first, then a PowerShell window / a vShell bar: it hides. The same after clicking its tabs.
 2. The hotkey again while it's down: it hides (it didn't when Windows hadn't marked it active).

@@ -44,6 +44,10 @@ namespace vTerm.Core
             Check(Gt.ghostty_terminal_new(IntPtr.Zero, out _term, (ushort)Cols, (ushort)Rows), "terminal");
             nuint lines = (nuint)Math.Max(100, scrollbackLines);
             Gt.ghostty_terminal_set(_term, Gt.OPT_SCROLLBACK_MAX_LINES, &lines);
+            // grapheme clusters (as Ghostty itself): an emoji with a skin tone, joined emoji (a family, the rainbow flag) and a symbol
+            // asking for its emoji look (⚠️ ❤️) are one character, two cells wide - not pieces
+            var grapheme = new Gt.ModeConfig { Mode = Gt.MODE_GRAPHEME_CLUSTER, Value = true };
+            Gt.ghostty_terminal_set(_term, Gt.OPT_MODE_DEFAULT, &grapheme);
             _self = GCHandle.Alloc(this);
             Gt.ghostty_terminal_set(_term, Gt.OPT_USERDATA, (void*)GCHandle.ToIntPtr(_self));
             Gt.ghostty_terminal_set(_term, Gt.OPT_WRITE_PTY, (void*)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, byte*, nuint, void>)&OnWritePty);

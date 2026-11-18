@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using vTerm.Core;
 
@@ -227,6 +228,8 @@ namespace vTerm.Ui
             public uint Fg, Bg;
             public bool HasBg, Bold, Italic, Strike, Over;
             public int Under;       // 0 none, 1 single, 2 double, 3 curly, 4 dotted, 5 dashed
+            public string Emoji;    // an emoji's whole cluster (drawn in colour by ColorEmoji), else null
+            public bool Wide;       // the emoji takes two cells
         }
 
         public int Frames { get; private set; }
@@ -346,6 +349,23 @@ namespace vTerm.Ui
                     if ((f & Gt.FLAG_INVISIBLE) != 0) cell.Cp = 0;
                 }
                 cell.Face = FaceFor(cell.Cp, cell.Bold, cell.Italic);
+                // an emoji: its whole cluster (skin tone, joined parts …) and width, for the colour drawing
+                if (len > 0 && cell.Cp > 0xFF && ColorEmoji.Available)
+                {
+                    int n = (int)Math.Min(len, (uint)_cp.Length);
+                    bool emoji;
+                    fixed (uint* p = _cp) emoji = ColorEmoji.IsEmoji(p, n);
+                    if (emoji)
+                    {
+                        var sb = new StringBuilder(n * 2);
+                        for (int k = 0; k < n; k++) if (_cp[k] <= 0x10FFFF && (_cp[k] < 0xD800 || _cp[k] > 0xDFFF)) sb.Append(char.ConvertFromUtf32((int)_cp[k]));
+                        cell.Emoji = sb.ToString();
+                        ulong raw;
+                        int wide = 0;
+                        if (Gt.ghostty_render_state_row_cells_get(cells, Gt.CELL_RAW, &raw) == Gt.SUCCESS) Gt.ghostty_cell_get(raw, Gt.CELLDATA_WIDE, &wide);
+                        cell.Wide = wide == Gt.WIDE_WIDE;
+                    }
+                }
                 line[x++] = cell;
             }
             for (; x < cols; x++) line[x] = new Cell { Fg = defFg, Bg = defBg };
@@ -402,6 +422,9 @@ namespace vTerm.Ui
                     Run(dc, line, s, i);
                     s = i;
                 }
+                // emoji, in colour (Windows' own drawing of the whole cluster), one or two cells wide
+                for (int i = 0; i < n; i++)
+                    if (line[i].Emoji != null) DrawEmoji(dc, line[i], i * _cellW, 0);
                 // lines: underline (single / double / curly … all drawn as one or two), strikethrough, overline
                 for (int i = 0; i < n; i++)
                 {
@@ -421,6 +444,20 @@ namespace vTerm.Ui
             }
         }
 
+        void DrawEmoji(DrawingContext dc, Cell c, double x, double y)
+        {
+            int cells = c.Wide ? 2 : 1;
+            int w = (int)Math.Round(cells * _cellW * _dip), h = (int)Math.Round(_cellH * _dip);
+            BitmapSource b = ColorEmoji.Get(c.Emoji, w, h, c.Fg);
+            if (b != null) { dc.DrawImage(b, new Rect(x, y, cells * _cellW, _cellH)); return; }
+            // couldn't be drawn in colour: in one colour, as before
+            c.Emoji = null;
+            Cell[] one = { c };
+            dc.PushTransform(new TranslateTransform(x, y));
+            Run(dc, one, 0, 1);
+            dc.Pop();
+        }
+
         void Run(DrawingContext dc, Cell[] line, int s, int e)
         {
             int face = line[s].Face;
@@ -435,7 +472,7 @@ namespace vTerm.Ui
             {
                 uint cp = line[k].Cp;
                 ushort g = space;
-                if (cp > ' ')
+                if (cp > ' ' && line[k].Emoji == null)      // emoji are drawn in colour afterwards (DrawEmoji)
                 {
                     if (line[k].Face < 0 || !tf.CharacterToGlyphMap.TryGetValue((int)cp, out g)) g = missing;
                     any = true;

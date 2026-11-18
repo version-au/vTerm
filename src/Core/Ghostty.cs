@@ -54,7 +54,8 @@ namespace vTerm.Core
         public const int FMT_OPT_EMIT = 1, FMT_OPT_UNWRAP = 2, FMT_OPT_TRIM = 3, FMT_OPT_SELECTION = 4;
         public const int FMT_PLAIN = 0;
         // DEC private modes (GhosttyMode: the number, bit 15 = an ANSI mode)
-        public const ushort MODE_FOCUS_EVENT = 1004, MODE_ALT_SCROLL = 1007, MODE_BRACKETED_PASTE = 2004;
+        public const ushort MODE_FOCUS_EVENT = 1004, MODE_ALT_SCROLL = 1007, MODE_BRACKETED_PASTE = 2004, MODE_GRAPHEME_CLUSTER = 2027;
+        public const int OPT_MODE_DEFAULT = 34;
         // focus
         public const int FOCUS_GAINED = 0, FOCUS_LOST = 1;
 
@@ -158,6 +159,10 @@ namespace vTerm.Core
         [DllImport(Dll)] public static extern int ghostty_formatter_format_alloc(IntPtr formatter, IntPtr allocator, byte** outPtr, nuint* outLen);
         [DllImport(Dll)] public static extern void ghostty_formatter_free(IntPtr formatter);
         [DllImport(Dll)] public static extern void ghostty_free(IntPtr allocator, byte* ptr, nuint len);
+
+        // ---- a cell's raw value (GhosttyCell) and what it holds: is it the first half of a wide character
+        public const int CELL_RAW = 1, CELLDATA_WIDE = 3, WIDE_WIDE = 1;
+        [DllImport(Dll)] public static extern int ghostty_cell_get(ulong cell, int data, void* outValue);
 
         // ---- colours
         [DllImport(Dll)] public static extern void ghostty_color_palette_default(Rgb* out256);
