@@ -1,5 +1,15 @@
 # vTerm changelog
 
+## 0.2.0
+
+- vTerm2 (a preview): the terminal is now libghostty-vt (Ghostty's terminal engine), drawn by vTerm itself - xterm.js and WebView2 are gone.
+- About half the memory: no browser processes (a vTerm with one tab: about 130 MB, was 280 MB; five busy tabs: about 175 MB, was 420 MB).
+- The text is drawn in vTerm's own window, so the drop-down's text slides with it and the window's edges always resize.
+- A tab that moves to another window keeps its whole screen and scrollback exactly as they were.
+- Ctrl+Shift+Home / End jump to the top / bottom of the scrollback; Shift+PageUp / PageDown scroll it a page.
+- Ctrl+click opens a web address shown in the terminal.
+- Emoji are drawn in one colour for now.
+
 ## 0.1.10 · release
 
 - A settings.json that can't be read no longer loses your saved connections: it is kept (settings.broken-…json), the save before it is used, and vShell's old list is never brought over it.

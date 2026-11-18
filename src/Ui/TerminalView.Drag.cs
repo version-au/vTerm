@@ -12,15 +12,13 @@ namespace vTerm.Ui
     /// </summary>
     public sealed partial class TerminalView
     {
-        /// <summary>A tab is pressed (maybe the start of a drag): the text window doesn't take the keyboard meanwhile (it did when the
-        /// press activated the window, and that took the press away).</summary>
+        /// <summary>A tab is pressed (maybe the start of a drag): the text doesn't take the keyboard meanwhile.</summary>
         public bool TabPressed { get { return _tabs.Pressing; } }
 
         Session SessionOf(StripTab t) { return t != null ? t.Tag as Session : null; }
 
         void HookTabs()
         {
-            _tabs.OwnsWindow = h => h != IntPtr.Zero && h == SurfaceHandle;   // a drop on the text window counts as on this terminal
             _tabs.Picked += t => { Session s = SessionOf(t); if (s != null && _sessions.Contains(s)) Select(s, false); };
             _tabs.PressEnded += t => FocusTerm();   // the click (or the drag) is over: the keyboard back to the text
             _tabs.CloseClicked += t => { Session s = SessionOf(t); if (s != null) CloseTab(s); };

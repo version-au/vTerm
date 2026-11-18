@@ -3,6 +3,32 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.0: vTerm2 - libghostty-vt instead of xterm.js / WebView2
+Branch `vterm2`; tag `vterm-xterm-0.1.10` is the last xterm.js vTerm. Test hooks added: `text <t>` (typed, through the screen), `key <Ctrl+Shift+Name>`
+(a key through the screen's own handling), `wheel <notches>`, `selectall`, `copy`, `paste`, `shot <file.png>`; `dump` shows the front tab's last lines.
+1. Start vTerm: PowerShell's prompt in its colours on the glass, the window's title follows the shell's. No msedgewebview2.exe under vTerm.exe
+   (Task Manager > Details, or the dump's process tree).
+2. Keys: Up / Down (history), Tab (completion), Ctrl+C (stops a command; copies when something is selected), Ctrl+V / Shift+Insert / right-click
+   with nothing selected (paste), Ctrl+Left / Right, Home / End, Alt+letter, F-keys. AltGr characters on a non-English layout. Dead keys (é via ' + e).
+   Japanese / Chinese / Korean IME: the composition window sits at the cursor; the text lands in the shell.
+3. Selection: drag selects (the accent colour), double-click a word, triple-click a line, drag past the top / bottom scrolls; right-click
+   copies it; Ctrl+C copies it. Shift+drag selects in a program that has the mouse (htop, vim).
+4. Scrollback: `1..3000 | % { "line $_" }`, the wheel scrolls (3 lines a notch), the scrollbar's thumb shows and widens when pointed at; drag it,
+   click above / below it (a page). Shift+PageUp / PageDown, Ctrl+Shift+Home / End. Typing jumps back to the bottom.
+5. Full-screen programs: `edit` (Microsoft Edit), vim / htop / less / tmux over SSH or WSL: they draw, take keys and the mouse (clicks,
+   wheel); leaving them gives back the screen as it was. Without the mouse (less), the wheel is arrow keys.
+6. Colours and styles: `Write-Host` with bold, italic, underline, strikethrough, inverse, 256 and true colour; accents, CJK (two cells
+   wide), box drawing. Emoji show, in one colour. Options > Look: font, size, colour scheme, see-through change the open tabs at once.
+7. Resize the window from every edge (the text never blocks it) and maximise: the shell gets the new size (`$Host.UI.RawUI.WindowSize`),
+   long lines rewrap.
+8. Tabs: new tab, Ctrl+Tab, close; drag a tab out into its own window and onto another: its screen and scrollback come along exactly,
+   the shell still running; Ctrl+Shift+O.
+9. The drop-down from a vShell bar: slides out with its text (nothing left behind), takes the keyboard, Shift+Esc / the hide button / a click
+   elsewhere hides it, the shells keep running; shown at another bar it takes that size.
+10. SSH: a saved connection opens; `exit` shows "[Disconnected …]", Enter connects again. The files panel still works.
+11. Ctrl+click a https:// address printed in the terminal: it opens in the browser (the pointer is a hand while Ctrl is held over it).
+12. `cat` / `type` of a big file or `1..200000`: streams steadily, Ctrl+C stops it at once, the window stays responsive, memory level.
+
 ## 0.1.10: connections, the file panel, saved passwords, copying a key
 1. `dotnet test tests\vTerm.Tests`: passes (`SettingsFileTests`, `AskpassTests`).
 2. Close vTerm, cut %APPDATA%\vTerm\settings.json short, start it: the connections are there (from settings.json.bak - the save before), settings.broken-<time>.json holds the broken file, vterm.log says so. With no .bak: no connections, but vShell's old ones are NOT imported over it and the broken file is kept.

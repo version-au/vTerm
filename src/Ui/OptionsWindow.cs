@@ -133,7 +133,7 @@ namespace vTerm.Ui
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Log.Folder) { UseShellExecute = true }); } catch { }
             });
             Row(c, "Settings folder", Log.Folder, null, folder);
-            Row(c, "Terminal display", "xterm.js (MIT licence) in Microsoft Edge WebView2", null, null);
+            Row(c, "Terminal display", "libghostty-vt (MIT licence), drawn by vTerm", null, null);
         }
 
         protected override void Saved()

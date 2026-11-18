@@ -1,26 +1,20 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
-using System.Text;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
-using Microsoft.Web.WebView2.Core;
-using Microsoft.Web.WebView2.Wpf;
 using vTerm.Core;
 
 namespace vTerm.Ui
 {
     /// <summary>
-    /// A terminal with tabs: each tab a shell (PowerShell, cmd, WSL ...) in a Windows pseudo console (ConPty), drawn by xterm.js in WebView2.
-    /// The tab strip looks like vShell's widget tabs; the terminal's colours come from the vShell theme. It has no background of its own,
-    /// so the window holding it shows through - glass and all. The text itself is drawn in a TermSurface: a see-through window kept over
-    /// the terminal area. Each vTerm window (MainWindow) holds one; a tab can move from one window to another with its shell running.
+    /// A terminal with tabs: each tab a shell (PowerShell, cmd, WSL ...) in a Windows pseudo console (ConPty), its screen kept by
+    /// libghostty-vt (TermEngine) and drawn by vTerm (TermScreen) right in this window. The tab strip looks like vShell's widget tabs; the
+    /// terminal's colours come from the vShell theme. It has no background of its own, so the window holding it shows through - glass and
+    /// all. Each vTerm window (MainWindow) holds one; a tab can move from one window to another with its shell and screen as they are.
     /// </summary>
     public sealed partial class TerminalView : Grid
     {
@@ -29,11 +23,11 @@ namespace vTerm.Ui
             public string Id;
             public TermProfile Profile;
             public ConPty Pty;
+            /// <summary>Its screen and scrollback (moves with the tab).</summary>
+            public TermEngine Engine;
             public string Title;
             /// <summary>Its tab in the strip (vSuite's StripTab, as vXplorer's).</summary>
             public StripTab Tab;
-            public readonly StringBuilder Pending = new StringBuilder();
-            public bool Created;
             /// <summary>An SSH tab: its connection (and a command run there instead of the saved one), else null.</summary>
             public TermConnection Conn;
             public string Remote;
@@ -42,16 +36,12 @@ namespace vTerm.Ui
             public int Cols = 120, Rows = 30;
             /// <summary>The terminal showing it now (a tab can move: popped out into a window, and back).</summary>
             public TerminalView Owner;
-            /// <summary>On its way to another terminal: its output waits in Pending for the new one.</summary>
-            public bool Moving;
         }
 
-        /// <summary>A tab on its way from one terminal to another (popped out / moved back): its shell, still running, and its screen.</summary>
+        /// <summary>A tab on its way from one terminal to another (popped out / moved back): its shell and screen, as they are.</summary>
         public sealed class Handoff
         {
             internal object S;
-            /// <summary>The screen and scrollback, as text that draws them again ("" = start blank).</summary>
-            internal string Screen = "";
             /// <summary>The terminal it came from.</summary>
             public TerminalView From;
             public string Title = "";
@@ -62,21 +52,15 @@ namespace vTerm.Ui
         Session _active;
         static int _nextId = 1;
         TermLook _t;
-        bool _webReady, _webFailed;
-        readonly List<string> _queue = new List<string>();
-        readonly DispatcherTimer _flush;
         readonly Border _strip = new Border();
         readonly TabStrip _tabs = new TabStrip { TabHeight = 32, Reserve = 40, VerticalAlignment = VerticalAlignment.Bottom };
         readonly Border _body = new Border { Background = Brushes.Transparent };
+        readonly TermScreen _screen = new TermScreen();
         readonly Border _empty = new Border { Background = Brushes.Transparent, Cursor = Cursors.Hand, Visibility = Visibility.Collapsed };
         readonly TextBlock _emptyText = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center };
         readonly StackPanel _right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
-        WebView2 _web;
-        TermSurface _surface;
-        bool _pendingWeb, _suspended;
-        readonly DispatcherTimer _track;
-        RECT _placed;
-        int _still;
+        Gt.Rgb[] _ansi;
+        Gt.Rgb _fg, _bg, _cursor;
 
         /// <summary>The last tab was closed (or moved away).</summary>
         public event Action Emptied;
@@ -84,13 +68,8 @@ namespace vTerm.Ui
         public Action OpenSettings;
         /// <summary>Shift+Esc (the drop-down hides; null = nothing).</summary>
         public Action HideRequested;
-        /// <summary>The text window lost the keyboard to something else (the drop-down hides when it's gone elsewhere).</summary>
-        public event Action SurfaceDeactivated;
         /// <summary>A dialog of the side panel is open (the drop-down mustn't hide for it).</summary>
         public bool InDialog { get { return Busy > 0; } }
-        /// <summary>The text window has the keyboard.</summary>
-        public bool SurfaceActive { get { return _surface != null && _surface.Handle != IntPtr.Zero && Native.GetForegroundWindow() == _surface.Handle; } }
-        public IntPtr SurfaceHandle { get { return _surface != null ? _surface.Handle : IntPtr.Zero; } }
         public bool HasTabs { get { return _sessions.Count > 0; } }
         public int TabCount { get { return _sessions.Count; } }
         /// <summary>Tabs whose shell / connection is still running.</summary>
@@ -136,96 +115,14 @@ namespace vTerm.Ui
             Children.Add(side);
             TermSsh.Changed += ConnectionsChanged;
             _empty.Child = _emptyText;
-            _empty.MouseLeftButtonUp += delegate (object s, MouseButtonEventArgs e) { e.Handled = true; NewTab(null); };
-            _flush = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(15) };
-            _flush.Tick += delegate { FlushOutput(); };
-            // started by output arriving (OutputArrived), stopped once there's nothing left to send - not ticking all the time
+            _empty.MouseLeftButtonUp += delegate (object o, MouseButtonEventArgs e) { e.Handled = true; NewTab(null); };
+            _body.Child = _screen;
+            _screen.Input += delegate (byte[] b) { if (_active != null) SendTo(_active, b); };
+            _screen.Resized += OnScreenResized;
+            _screen.LinkOpened += OpenLink;
             PreviewKeyDown += OnKey;
-            // the text window follows the terminal area (moves, resizes, shows / hides with it)
-            _track = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(40) };
-            _track.Tick += delegate { Track(); };
-            IsVisibleChanged += delegate { Track(); if (IsVisible) _track.Start(); else _track.Stop(); };
-            LayoutUpdated += delegate { if (_surface != null) Track(); };
-            Loaded += delegate { if (_pendingWeb) { _pendingWeb = false; EnsureWeb(); } Track(); };
+            ApplyColors(null);
             ShowEmpty();
-        }
-
-        /// <summary>Hold the text window hidden (the drop-down is sliding: it would be left behind).</summary>
-        public void Suspend(bool on) { _suspended = on; Track(); }
-
-        /// <summary>Place the text window again now (its window was restored, or changed Keep on top).</summary>
-        public void Retrack() { _placed = new RECT(); _still = 0; Track(); }
-
-        /// <summary>Put the text window over the terminal area, or hide it.</summary>
-        void Track()
-        {
-            if (_surface == null || _surface.Handle == IntPtr.Zero) return;
-            Window owner = Window.GetWindow(this);
-            bool show = !_suspended && IsVisible && owner != null && owner.IsVisible && _sessions.Count > 0 && _body.ActualWidth > 4 && _body.ActualHeight > 4
-                        && PresentationSource.FromVisual(_body) != null;
-            if (!show)
-            {
-                if (_placed.Width != 0) { _surface.HideSurface(); _placed = new RECT(); }
-                return;
-            }
-            try
-            {
-                Point a = _body.PointToScreen(new Point(0, 0)), b = _body.PointToScreen(new Point(_body.ActualWidth, _body.ActualHeight));
-                var r = new RECT { Left = (int)Math.Round(Math.Min(a.X, b.X)), Top = (int)Math.Round(Math.Min(a.Y, b.Y)), Right = (int)Math.Round(Math.Max(a.X, b.X)), Bottom = (int)Math.Round(Math.Max(a.Y, b.Y)) };
-                // only the part that's really shown: whatever holds it may cut it off (a row shorter than the terminal, a widget that scrolls)
-                ClipToShown(ref r);
-                // a window resized from its edges: the text window (WebView2's own window takes the mouse) stays clear of them
-                if (KeepOffEdges && owner.WindowState == WindowState.Normal)
-                {
-                    IntPtr oh = new System.Windows.Interop.WindowInteropHelper(owner).Handle;
-                    RECT wr;
-                    if (oh != IntPtr.Zero && Native.GetWindowRect(oh, out wr))
-                    {
-                        int band = (int)Math.Round(7 * Math.Max(0.5, Native.GetDpiForWindow(oh) / 96.0));
-                        r.Left = Math.Max(r.Left, wr.Left + band);
-                        r.Right = Math.Min(r.Right, wr.Right - band);
-                        r.Bottom = Math.Min(r.Bottom, wr.Bottom - band);
-                    }
-                }
-                if (r.Right - r.Left < 8 || r.Bottom - r.Top < 8)
-                {
-                    if (_placed.Width != 0) { _surface.HideSurface(); _placed = new RECT(); }
-                    return;
-                }
-                if (r.Left == _placed.Left && r.Top == _placed.Top && r.Right == _placed.Right && r.Bottom == _placed.Bottom)
-                {
-                    // still: check less often (4 a second) until something moves again
-                    if (++_still == 12 && _track.Interval.TotalMilliseconds < 200) _track.Interval = TimeSpan.FromMilliseconds(250);
-                    return;
-                }
-                _still = 0;
-                if (_track.Interval.TotalMilliseconds > 50) _track.Interval = TimeSpan.FromMilliseconds(40);
-                _placed = r;
-                _surface.Topmost = owner.Topmost;
-                _surface.PlaceAt(r.Left, r.Top, r.Width, r.Height);
-            }
-            catch (Exception ex) { Log.Write("Terminal track: " + ex.Message); }
-        }
-
-        /// <summary>Cut r (screen pixels) to what the terminal's holders show: any of them that clips (its own bounds, a layout slot smaller
-        /// than it, a scrolling view).</summary>
-        void ClipToShown(ref RECT r)
-        {
-            DependencyObject d = VisualTreeHelper.GetParent(_body);
-            while (d != null)
-            {
-                var fe = d as FrameworkElement;
-                if (fe != null && fe.ActualWidth > 0 && fe.ActualHeight > 0 &&
-                    (fe.ClipToBounds || fe.Clip != null || System.Windows.Controls.Primitives.LayoutInformation.GetLayoutClip(fe) != null || fe is System.Windows.Controls.ScrollContentPresenter || fe is Window))
-                {
-                    Point a = fe.PointToScreen(new Point(0, 0)), b = fe.PointToScreen(new Point(fe.ActualWidth, fe.ActualHeight));
-                    r.Left = Math.Max(r.Left, (int)Math.Round(Math.Min(a.X, b.X)));
-                    r.Top = Math.Max(r.Top, (int)Math.Round(Math.Min(a.Y, b.Y)));
-                    r.Right = Math.Min(r.Right, (int)Math.Round(Math.Max(a.X, b.X)));
-                    r.Bottom = Math.Min(r.Bottom, (int)Math.Round(Math.Max(a.Y, b.Y)));
-                }
-                d = d is Visual ? VisualTreeHelper.GetParent(d) : null;
-            }
         }
 
         // =================================================================
@@ -244,9 +141,8 @@ namespace vTerm.Ui
             foreach (UIElement b in _right.Children) { var bb = b as Border; var tb = bb != null ? bb.Child as TextBlock : null; if (tb != null) tb.Foreground = t.FgDim; }
             foreach (Session x in _sessions) PaintTab(x);
             ShowEmpty();
-            if (_surface != null) _surface.ApplyLook(_s.SeeThrough, SolidBg());
             PanelTheme();
-            PostTheme();
+            ApplyColors(t);
         }
 
         /// <summary>The terminal's background when it isn't see-through: the theme colour, solid.</summary>
@@ -259,23 +155,24 @@ namespace vTerm.Ui
             return (bg.R * 299 + bg.G * 587 + bg.B * 114) / 1000 < 140;
         }
 
-        void PostTheme()
+        /// <summary>The terminal's colours (text, background, cursor, the 16 colours) into every tab's engine, and the screen's look.</summary>
+        void ApplyColors(TermLook t)
         {
-            if (_t == null) return;
-            AppSettings s = _s;
-            Color fg = _t.Fg.Color, bg = _t.BgColor, ac = _t.MainAccent.Color, sec = _t.SecondaryAccent.Color;
-            var th = new Dictionary<string, string>
-            {
-                { "background", "rgba(0,0,0,0)" }, { "foreground", Css(fg) }, { "cursor", Css(ac) }, { "cursorAccent", Css(Solid(bg)) },
-                { "selectionBackground", "rgba(" + ac.R + "," + ac.G + "," + ac.B + ",0.38)" }
-            };
-            string[] names = { "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white",
-                               "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite" };
-            string[] pal = Palette(s.Colors, Dark(), Solid(bg), fg, ac, sec);
-            for (int i = 0; i < names.Length; i++) th[names[i]] = pal[i];
-            string font = string.IsNullOrWhiteSpace(s.Font) ? "'Cascadia Mono', Consolas, 'Courier New', monospace"
-                                                             : "'" + s.Font.Replace("'", "") + "', 'Cascadia Mono', Consolas, monospace";
-            Post(new { t = "theme", theme = th, font = font, size = s.FontSize, thumb = "rgba(" + fg.R + "," + fg.G + "," + fg.B + ",0.35)" });
+            Color fg = t != null ? t.Fg.Color : Color.FromRgb(0xE6, 0xE6, 0xE6), bg = SolidBg();
+            Color ac = t != null ? t.MainAccent.Color : Color.FromRgb(0x7A, 0xA2, 0xF7), sec = t != null ? t.SecondaryAccent.Color : Color.FromRgb(0xBB, 0x9A, 0xF7);
+            string[] pal = Palette(_s.Colors, Dark(), bg, Solid(fg), Solid(ac), Solid(sec));
+            _ansi = new Gt.Rgb[16];
+            for (int i = 0; i < 16; i++) _ansi[i] = Rgb(FromCss(pal[i]));
+            _fg = Rgb(Solid(fg)); _bg = Rgb(bg); _cursor = Rgb(Solid(ac));
+            foreach (Session x in _sessions) if (x.Engine != null) x.Engine.SetColors(_fg, _bg, _cursor, _ansi);
+            _screen.ApplyLook(_s.Font, _s.FontSize, _s.SeeThrough, bg, Solid(ac), Color.FromArgb(0x61, ac.R, ac.G, ac.B), Color.FromArgb(0x59, fg.R, fg.G, fg.B));
+        }
+
+        static Gt.Rgb Rgb(Color c) { return new Gt.Rgb { R = c.R, G = c.G, B = c.B }; }
+
+        static Color FromCss(string css)
+        {
+            try { return (Color)ColorConverter.ConvertFromString(css); } catch { return Color.FromRgb(0x80, 0x80, 0x80); }
         }
 
         /// <summary>
@@ -337,9 +234,9 @@ namespace vTerm.Ui
             dock.Children.Add(panelBtn);
             TextElement.SetFontFamily(_tabs, new FontFamily("Segoe UI"));
             TextElement.SetFontSize(_tabs, 12.5);
-            _tabs.AddButton(StripButton("", "New tab (Ctrl+Shift+T)", delegate { NewTab(null); }));
+            _tabs.AddButton(StripButton("\uE710", "New tab (Ctrl+Shift+T)", delegate { NewTab(null); }));
             Border pick = null;
-            pick = StripButton("", "New tab with…", delegate { ProfileMenu(pick); });
+            pick = StripButton("\uE70D", "New tab with…", delegate { ProfileMenu(pick); });
             _tabs.AddButton(pick);
             HookTabs();
             dock.Children.Add(_tabs);
@@ -363,14 +260,13 @@ namespace vTerm.Ui
         public void ShowHideButton(bool on)
         {
             _right.Children.Clear();
-            if (on) _right.Children.Add(StripButton("", "Hide (the shells keep running)", delegate { if (HideRequested != null) HideRequested(); }));
+            if (on) _right.Children.Add(StripButton("\uE921", "Hide (the shells keep running)", delegate { if (HideRequested != null) HideRequested(); }));
             if (_t != null) ApplyTheme(_t);
         }
 
         /// <summary>
         /// Open a menu of the terminal's at the mouse pointer, placed on the screen itself: WPF's own placement (under the button, or at the
-        /// pointer) put it in the top-left corner of the screen in the drop-down and in widgets - their windows are placed in device pixels
-        /// outside WPF, and the text window beside them has the keyboard.
+        /// pointer) put it in the top-left corner of the screen in the drop-down - its window is placed in device pixels outside WPF.
         /// </summary>
         static void OpenAtPointer(ContextMenu m)
         {
@@ -439,18 +335,21 @@ namespace vTerm.Ui
 
         void OnKey(object sender, KeyEventArgs e)
         {
-            // Ctrl+Shift+T: new tab, Ctrl+Shift+W: close tab, Ctrl+Tab / Ctrl+Shift+Tab: next / previous tab
+            // Ctrl+Shift+T: new tab, Ctrl+Shift+W: close tab, Ctrl+Tab / Ctrl+Shift+Tab: next / previous tab, Ctrl+Shift+O: into a new
+            // window, Shift+Esc: hide (the drop-down)
             bool ctrl = (Keyboard.Modifiers & ModifierKeys.Control) != 0, shift = (Keyboard.Modifiers & ModifierKeys.Shift) != 0;
+            bool alt = (Keyboard.Modifiers & ModifierKeys.Alt) != 0;
             Key k = e.Key == Key.System ? e.SystemKey : e.Key;
-            if (ctrl && shift && k == Key.T) { e.Handled = true; NewTab(null); }
-            else if (ctrl && shift && k == Key.O) { e.Handled = true; PopOutActive(); }
-            else if (ctrl && shift && k == Key.W) { e.Handled = true; if (_active != null) CloseTab(_active); }
-            else if (ctrl && k == Key.Tab && _sessions.Count > 1)
+            if (ctrl && shift && !alt && k == Key.T) { e.Handled = true; NewTab(null); }
+            else if (ctrl && shift && !alt && k == Key.O) { e.Handled = true; PopOutActive(); }
+            else if (ctrl && shift && !alt && k == Key.W) { e.Handled = true; if (_active != null) CloseTab(_active); }
+            else if (ctrl && !alt && k == Key.Tab && _sessions.Count > 1)
             {
                 e.Handled = true;
                 int i = _sessions.IndexOf(_active);
                 Select(_sessions[(i + (shift ? -1 : 1) + _sessions.Count) % _sessions.Count]);
             }
+            else if (shift && !ctrl && !alt && k == Key.Escape && HideRequested != null) { e.Handled = true; HideRequested(); }
         }
 
         // =================================================================
@@ -460,13 +359,11 @@ namespace vTerm.Ui
         public void NewTab(TermProfile p)
         {
             if (p == null) p = _s.StartProfile();
-            EnsureWeb();
-            var s = new Session { Id = "t" + (_nextId++), Profile = p, Title = p.Name, Owner = this };
+            var s = NewSession(p, p.Name);
+            if (s == null) return;
             BuildTab(s);
             _sessions.Add(s);
             StartPty(s);
-            Post(new { t = "new", id = s.Id });
-            s.Created = true;
             Select(s);
             ShowEmpty();
         }
@@ -475,17 +372,36 @@ namespace vTerm.Ui
         public void Connect(TermConnection c, string remote)
         {
             if (c == null) return;
-            EnsureWeb();
             var p = new TermProfile { Name = c.Shown, Command = TermSsh.CommandLine(c, remote) };
-            var s = new Session { Id = "t" + (_nextId++), Profile = p, Title = c.Shown, Conn = c, Remote = remote, Owner = this };
+            var s = NewSession(p, c.Shown);
+            if (s == null) return;
+            s.Conn = c;
+            s.Remote = remote;
             BuildTab(s);
             _sessions.Add(s);
             StartPty(s);
-            Post(new { t = "new", id = s.Id });
-            s.Created = true;
             Select(s);
             ShowEmpty();
             ConnectionsChanged();
+        }
+
+        /// <summary>A tab's session with its terminal, the size the screen has room for. Null when the terminal engine can't load.</summary>
+        Session NewSession(TermProfile p, string title)
+        {
+            var s = new Session { Id = "t" + (_nextId++), Profile = p, Title = title, Owner = this };
+            if (_screen.FitCols > 0) { s.Cols = _screen.FitCols; s.Rows = _screen.FitRows; }
+            try { s.Engine = new TermEngine(s.Cols, s.Rows, 10000); }
+            catch (Exception ex)
+            {
+                Log.Write("Terminal engine: " + ex);
+                Looks.Tell(Window.GetWindow(this), "The terminal couldn't start (libghostty-vt): " + ex.Message, "vTerm");
+                return null;
+            }
+            s.Engine.SetColors(_fg, _bg, _cursor, _ansi);
+            Session me = s;
+            s.Engine.Reply += delegate (byte[] b) { ConPty pty = me.Pty; if (pty != null && !me.Over) pty.Write(b); };
+            s.Engine.TitleChanged += delegate (string v) { Dispatcher.BeginInvoke(new Action(delegate { TitleFromShell(me, v); })); };
+            return s;
         }
 
         /// <summary>Start (or start again) the tab's shell / ssh.</summary>
@@ -495,23 +411,56 @@ namespace vTerm.Ui
             s.Pty = pty;
             s.Over = false;
             Session me = s;
-            // through the tab's owner at the time: the tab may have moved to another terminal since
-            pty.Output += delegate (string text) { if (me.Pty == pty) { lock (me.Pending) me.Pending.Append(text); TerminalView o = me.Owner; if (o != null) o.OutputArrived(); HoldBack(me, pty); } };
+            // straight into the tab's terminal on the reader thread: it keeps up, and the window draws when it's ready
+            pty.Data += delegate (byte[] buf, int n) { if (me.Pty == pty && me.Engine != null) me.Engine.Feed(buf, n); };
             pty.Exited += delegate (int code) { Dispatcher.BeginInvoke(new Action(delegate { if (me.Pty == pty && me.Owner != null) me.Owner.Ended(me, code); })); };
             string cmd = s.Conn != null ? TermSsh.CommandLine(s.Conn, s.Remote) : s.Profile.Command;
             try
             {
                 if (s.Conn != null && !TermSsh.HaveSsh)
-                    { lock (s.Pending) s.Pending.Append("\x1b[33mWindows' OpenSSH client isn't installed: Settings > System > Optional features > Add \"OpenSSH Client\".\x1b[0m\r\n"); OutputArrived(); }
+                    s.Engine.Feed("\x1b[33mWindows' OpenSSH client isn't installed: Settings > System > Optional features > Add \"OpenSSH Client\".\x1b[0m\r\n");
                 pty.Start(cmd, s.Conn != null ? null : s.Profile.Folder, s.Cols, s.Rows, s.Conn != null ? TermSsh.Env(s.Conn) : null);
             }
             catch (Exception ex)
             {
                 Log.Write("Terminal start '" + (s.Conn != null ? "ssh " + s.Conn.Target : cmd) + "': " + ex.Message);
-                lock (s.Pending) s.Pending.Append("\x1b[31mCouldn't start \"" + (s.Conn != null ? "ssh " + s.Conn.Target : cmd) + "\": " + ex.Message + "\x1b[0m\r\n");
-                OutputArrived();
+                s.Engine.Feed("\x1b[31mCouldn't start \"" + (s.Conn != null ? "ssh " + s.Conn.Target : cmd) + "\": " + ex.Message + "\x1b[0m\r\n");
             }
             PaintTab(s);
+        }
+
+        /// <summary>Typed / clicked input for a tab's shell. A disconnected SSH tab: Enter connects again.</summary>
+        void SendTo(Session s, byte[] b)
+        {
+            if (s == null || b == null || b.Length == 0) return;
+            if (s.Over)
+            {
+                if (s.Conn != null && Array.IndexOf(b, (byte)'\r') >= 0) { s.Tab.Title = s.Title; s.Engine.Feed("\r\n"); StartPty(s); }
+                return;
+            }
+            if (s.Pty != null) s.Pty.Write(b);
+        }
+
+        /// <summary>The screen has room for a new number of cells: the tab in front (its terminal and shell) takes that size.</summary>
+        void OnScreenResized(int cols, int rows, int cellW, int cellH)
+        {
+            Session s = _active;
+            if (s == null || s.Engine == null) return;
+            s.Cols = cols; s.Rows = rows;
+            s.Engine.Resize(cols, rows, cellW, cellH);
+            if (!s.Over && s.Pty != null) s.Pty.Resize(cols, rows);
+        }
+
+        /// <summary>The program set a title: an SSH tab keeps its connection's name (ssh sets the title to its own path); a shell's
+        /// title only when it's more than the program's path (cmd / PowerShell start with C:\Windows\...\x.exe).</summary>
+        void TitleFromShell(Session s, string v)
+        {
+            if (s == null || s.Conn != null || s.Tab == null) return;
+            v = (v ?? "").Trim();
+            if (v.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) v = "";
+            s.Title = v.Length > 0 ? v : s.Profile.Name;
+            if (!s.Over) s.Tab.Title = s.Title;
+            if (s == _active && TitleChanged != null) TitleChanged();
         }
 
         void BuildTab(Session s)
@@ -536,7 +485,7 @@ namespace vTerm.Ui
             _tabs.Select(s.Tab);
             ActiveChanged();
             foreach (Session x in _sessions) PaintTab(x);
-            Post(new { t = "show", id = s.Id });
+            _screen.Show(s.Engine);
             if (TitleChanged != null) TitleChanged();
             if (focus) FocusTerm();
         }
@@ -569,18 +518,13 @@ namespace vTerm.Ui
         }
 
         // =================================================================
-        // Moving a tab to another terminal (pop out / move back) - the shell keeps running
+        // Moving a tab to another terminal (pop out / move back) - the shell keeps running, the screen goes along as it is
         // =================================================================
-        readonly Dictionary<string, Action<string>> _serWait = new Dictionary<string, Action<string>>();
-
         /// <summary>The tab in front, into a window of its own (Ctrl+Shift+O). A window's only tab stays (the drop-down's can go).</summary>
         void PopOutActive()
         {
             if (_active != null && (_sessions.Count > 1 || LastTabCanLeave)) PopOut(_active);
         }
-
-        /// <summary>The window is resized from its edges: the text window keeps clear of its left, right and bottom edges (not maximised).</summary>
-        public bool KeepOffEdges;
 
         /// <summary>Its last tab may move into a window of its own (the drop-down: it hides then) - a window's last tab would just leave it empty.</summary>
         public bool LastTabCanLeave { get { return _tabs.CanTearLast; } set { _tabs.CanTearLast = value; } }
@@ -602,53 +546,33 @@ namespace vTerm.Ui
             MoveOut(s, delegate (Handoff h) { to.Adopt(h); if (to.BringUp != null) to.BringUp(); });
         }
 
-        /// <summary>
-        /// Take a tab out of this terminal and hand it on: the page is asked for the tab's screen first; while it answers the tab's output
-        /// waits (so nothing is drawn into the old screen after the copy), then the tab leaves and `to` gets it.
-        /// </summary>
+        /// <summary>Take a tab out of this terminal and hand it on: its terminal (screen, scrollback) and shell go as they are.</summary>
         void MoveOut(Session s, Action<Handoff> to)
         {
-            if (s == null || s.Moving || !_sessions.Contains(s)) return;
-            FlushOutput(true);      // the old screen up to date before it's copied
-            s.Moving = true;
-            bool done = false;
-            Action<string> go = delegate (string screen)
+            if (s == null || !_sessions.Contains(s)) return;
+            Handoff h = Detach(s);
+            if (h == null) return;
+            try { to(h); }
+            catch (Exception ex)
             {
-                if (done) return;
-                done = true;
-                _serWait.Remove(s.Id);
-                Handoff h = Detach(s, screen);
-                if (h == null) { s.Moving = false; return; }
-                try { to(h); }
-                catch (Exception ex)
-                {
-                    Log.Write("Terminal move: " + ex);
-                    Adopt(h);       // couldn't go: back where it was
-                }
-            };
-            if (!_webReady || _web == null) { go(""); return; }
-            _serWait[s.Id] = go;
-            Post(new { t = "ser", id = s.Id });
-            // the page should answer at once; if it doesn't, go without the screen
-            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            t.Tick += delegate { t.Stop(); if (!done) { Log.Write("Terminal move: the page didn't send the screen - moving without it"); go(""); } };
-            t.Start();
+                Log.Write("Terminal move: " + ex);
+                Adopt(h);       // couldn't go: back where it was
+            }
         }
 
         /// <summary>Take the tab out (its shell keeps running), without giving the keyboard to the tab left in front.</summary>
-        Handoff Detach(Session s, string screen)
+        Handoff Detach(Session s)
         {
             int i = _sessions.IndexOf(s);
             if (i < 0) return null;
             _sessions.RemoveAt(i);
             _tabs.Remove(s.Tab);
-            Post(new { t = "close", id = s.Id });
-            var h = new Handoff { S = s, Screen = screen ?? "", From = this, Title = s.Title };
+            var h = new Handoff { S = s, From = this, Title = s.Title };
             if (_sessions.Count == 0)
             {
                 _active = null;
+                _screen.Show(null);
                 ShowEmpty();
-                Track();
                 ConnectionsChanged();
                 if (Emptied != null) Emptied();
                 return h;
@@ -658,25 +582,19 @@ namespace vTerm.Ui
             return h;
         }
 
-        /// <summary>Take in a tab from another terminal: its screen is drawn again, then whatever the shell wrote on the way.</summary>
+        /// <summary>Take in a tab from another terminal: its screen is as it was, and it takes this window's size and colours.</summary>
         public void Adopt(Handoff h)
         {
             var s = h != null ? h.S as Session : null;
             if (s == null) return;
-            EnsureWeb();
             s.Owner = this;
-            s.Created = false;
             BuildTab(s);
             if (s.Over) s.Tab.Title = s.Title + (s.Conn != null ? " (disconnected)" : " (ended)");
             _sessions.Add(s);
-            Post(new { t = "new", id = s.Id });
-            if (!string.IsNullOrEmpty(h.Screen)) Post(new { t = "o", id = s.Id, d = h.Screen });
-            s.Created = true;
-            s.Moving = false;
+            if (s.Engine != null) s.Engine.SetColors(_fg, _bg, _cursor, _ansi);
             Select(s);
             ShowEmpty();
             ConnectionsChanged();
-            OutputArrived();
         }
 
         void CloseTab(Session s)
@@ -685,29 +603,33 @@ namespace vTerm.Ui
             if (i < 0) return;
             _sessions.RemoveAt(i);
             _tabs.Remove(s.Tab);
-            try { s.Pty.Dispose(); } catch { }
-            Post(new { t = "close", id = s.Id });
-            if (_sessions.Count == 0) { _active = null; ShowEmpty(); Track(); if (Emptied != null) Emptied(); return; }
-            if (_active == s) Select(_sessions[Math.Min(i, _sessions.Count - 1)]);
+            if (_sessions.Count == 0) { _active = null; _screen.Show(null); }
+            else if (_active == s) Select(_sessions[Math.Min(i, _sessions.Count - 1)]);
+            try { if (s.Pty != null) s.Pty.Dispose(); } catch { }
+            s.Pty = null;
+            TermEngine e = s.Engine;
+            s.Engine = null;
+            // the reader may be inside Feed a moment longer: the engine goes once it's done (Dispose waits for the lock)
+            if (e != null) System.Threading.ThreadPool.QueueUserWorkItem(delegate { e.Dispose(); });
+            if (_sessions.Count == 0) { ShowEmpty(); if (Emptied != null) Emptied(); }
         }
 
         void Ended(Session s, int code)
         {
             if (!_sessions.Contains(s)) return;
-            FlushOutput(true);
             s.Over = true;
             try { s.Pty.Dispose(); } catch { }
             if (s.Conn != null)
             {
                 // an SSH tab stays: Enter connects again
-                Post(new { t = "exited", id = s.Id, text = "Disconnected from " + s.Conn.Target + (code != 0 ? " (code " + code + ")" : "") + " - press Enter to connect again, or close the tab" });
+                s.Engine.Feed("\r\n\x1b[2m[Disconnected from " + s.Conn.Target + (code != 0 ? " (code " + code + ")" : "") + " - press Enter to connect again, or close the tab]\x1b[0m\r\n");
                 s.Tab.Title = s.Title + " (disconnected)";
                 PaintTab(s);
                 ConnectionsChanged();
                 return;
             }
             if (code == 0) { CloseTab(s); return; }
-            Post(new { t = "exited", id = s.Id, text = "The shell ended (exit code " + code + ") - close this tab or open a new one" });
+            s.Engine.Feed("\r\n\x1b[2m[The shell ended (exit code " + code + ") - close this tab or open a new one]\x1b[0m\r\n");
             s.Tab.Title = s.Title + " (ended)";
         }
 
@@ -725,25 +647,9 @@ namespace vTerm.Ui
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Input, new Action(delegate
             {
-                Track();
-                if (TabPressed) return;     // a tab is being pressed / dragged: the keyboard comes after (the click selects, the drop focuses)
-                if (_surface != null && _surface.Handle != IntPtr.Zero && _placed.Width > 0)
-                {
-                    try
-                    {
-                        uint pid;
-                        IntPtr fg = Native.GetForegroundWindow();
-                        uint fgThread = fg == IntPtr.Zero ? 0 : Native.GetWindowThreadProcessId(fg, out pid);
-                        uint me = Native.GetCurrentThreadId();
-                        bool attached = fgThread != 0 && fgThread != me && Native.AttachThreadInput(me, fgThread, true);
-                        try { Native.SetForegroundWindow(_surface.Handle); }
-                        finally { if (attached) Native.AttachThreadInput(me, fgThread, false); }
-                        _surface.Activate();
-                    }
-                    catch (Exception ex) { Log.Write("Terminal focus: " + ex.Message); }
-                }
-                try { if (_web != null) { _web.Focus(); Keyboard.Focus(_web); } } catch { }
-                Post(new { t = "focus" });
+                if (TabPressed || _sessions.Count == 0) return;     // a tab is being pressed / dragged: the keyboard comes after
+                if (Busy > 0) return;                               // a dialog of the side panel is open
+                try { _screen.Focus(); Keyboard.Focus(_screen); } catch { }
             }));
         }
 
@@ -751,276 +657,15 @@ namespace vTerm.Ui
         public void EndAll()
         {
             Live.Remove(this);
-            _flush.Stop();
-            _track.Stop();
             TermSsh.Changed -= ConnectionsChanged;
             CloseSftp();
-            foreach (Session s in _sessions) try { s.Pty.Dispose(); } catch { }
+            _screen.Show(null);
+            foreach (Session s in _sessions)
+            {
+                try { if (s.Pty != null) s.Pty.Dispose(); } catch { }
+                try { if (s.Engine != null) s.Engine.Dispose(); } catch { }
+            }
             _sessions.Clear();
-            try { if (_web != null) _web.Dispose(); } catch { }
-            _web = null;
-            try { if (_surface != null) _surface.Close(); } catch { }
-            _surface = null;
-        }
-
-        // =================================================================
-        // The page
-        // =================================================================
-        async void EnsureWeb()
-        {
-            if (_web != null || _webFailed) return;
-            Window owner = Window.GetWindow(this);
-            if (owner == null || !owner.IsLoaded) { _pendingWeb = true; return; }       // when the view is in its window
-            try
-            {
-                string dir = ExtractAssets();
-                _surface = new TermSurface(owner, _s.SeeThrough, SolidBg());
-                // its window moving: follow straight away, even while checking slowly
-                owner.LocationChanged += delegate { _still = 0; Track(); };
-                _surface.Deactivated += delegate { if (SurfaceDeactivated != null) SurfaceDeactivated(); };
-                _surface.Show();
-                _web = _surface.Web;
-                Log.Write("Terminal: display window made, starting WebView2");
-                var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(App.DataFolder, "WebView2"));
-                await _web.EnsureCoreWebView2Async(env);
-                CoreWebView2 core = _web.CoreWebView2;
-                core.Settings.AreDefaultContextMenusEnabled = false;
-                core.Settings.AreDevToolsEnabled = false;
-                core.Settings.IsStatusBarEnabled = false;
-                core.Settings.AreBrowserAcceleratorKeysEnabled = false;     // F5 / Ctrl+R / Ctrl+F go to the shell, not the page
-                core.Settings.IsZoomControlEnabled = false;
-                core.SetVirtualHostNameToFolderMapping("vterm.local", dir, CoreWebView2HostResourceAccessKind.Allow);
-                core.WebMessageReceived += OnMessage;
-                core.NewWindowRequested += delegate (object s, CoreWebView2NewWindowRequestedEventArgs e) { e.Handled = true; OpenLink(e.Uri); };
-                core.NavigationStarting += delegate (object s, CoreWebView2NavigationStartingEventArgs e)
-                {
-                    if (!e.Uri.StartsWith("https://vterm.local/", StringComparison.OrdinalIgnoreCase)) { e.Cancel = true; OpenLink(e.Uri); }
-                };
-                core.Navigate("https://vterm.local/term.html");
-                Log.Write("Terminal: WebView2 " + env.BrowserVersionString + " ready, loading the page");
-                _placed = new RECT();
-                Track();
-            }
-            catch (Exception ex)
-            {
-                _webFailed = true;
-                Log.Write("Terminal WebView2: " + ex);
-                bool missing = ex is WebView2RuntimeNotFoundException;
-                try { if (_surface != null) _surface.Close(); } catch { }
-                _surface = null;
-                _body.Child = new TextBlock
-                {
-                    Margin = new Thickness(16), TextWrapping = TextWrapping.Wrap, Foreground = _t != null ? _t.Fg : Brushes.White,
-                    Text = missing ? "The terminal needs the Microsoft Edge WebView2 Runtime (part of Windows 11; for Windows 10 get it from " +
-                                     "https://developer.microsoft.com/microsoft-edge/webview2/), then start vTerm again."
-                                   : "The terminal couldn't start its display: " + ex.Message
-                };
-            }
-        }
-
-        static string _assets;
-        static string ExtractAssets()
-        {
-            if (_assets != null) return _assets;
-            string dir = Path.Combine(App.DataFolder, "terminal");
-            Directory.CreateDirectory(dir);
-            Assembly asm = typeof(TerminalView).Assembly;
-            const string prefix = "vTerm.Terminal.";
-            foreach (string name in asm.GetManifestResourceNames())
-            {
-                if (!name.StartsWith(prefix, StringComparison.Ordinal)) continue;
-                string file = Path.Combine(dir, name.Substring(prefix.Length));
-                using (Stream src = asm.GetManifestResourceStream(name))
-                using (var ms = new MemoryStream())
-                {
-                    src.CopyTo(ms);
-                    byte[] bytes = ms.ToArray();
-                    // the same bytes already there (a new vTerm's page replaces an older one even when it's the same size)
-                    bool same = File.Exists(file) && new FileInfo(file).Length == bytes.Length && File.ReadAllBytes(file).AsSpan().SequenceEqual(bytes);
-                    if (!same) File.WriteAllBytes(file, bytes);
-                }
-            }
-            _assets = dir;
-            return dir;
-        }
-
-        void Post(object msg)
-        {
-            string json = JsonSerializer.Serialize(msg);
-            if (!_webReady || _web == null || _web.CoreWebView2 == null) { _queue.Add(json); return; }
-            try { _web.CoreWebView2.PostWebMessageAsJson(json); } catch (Exception ex) { Log.Write("Terminal post: " + ex.Message); }
-        }
-
-        int _flushOn;
-
-        /// <summary>A shell wrote something (any thread): make sure the flush timer runs.</summary>
-        void OutputArrived()
-        {
-            if (System.Threading.Interlocked.Exchange(ref _flushOn, 1) == 1) return;
-            Dispatcher.BeginInvoke(new Action(delegate { if (!_flush.IsEnabled) _flush.Start(); }));
-        }
-
-        /// <summary>
-        /// Output is handed to the screen a piece at a time (PostChars each tick), and a shell that has WaitChars waiting is held
-        /// back until some has gone (HoldBack) - as any terminal does. Without it a runaway command (`cat` of a huge file, `yes`)
-        /// queued without end: memory climbed, Ctrl+C seemed dead until the backlog had drawn, and the screen dropped output.
-        /// </summary>
-        const int PostChars = 128 * 1024, WaitChars = 2 * 1024 * 1024;
-
-        /// <summary>On the shell's reader thread, after it added output: wait (a little) while too much is waiting to be shown.</summary>
-        static void HoldBack(Session s, ConPty pty)
-        {
-            for (int i = 0; i < 400; i++)       // 2 s at most a time: a stuck window never stops the shell for good
-            {
-                int waiting;
-                lock (s.Pending) waiting = s.Pending.Length;
-                if (waiting < WaitChars || s.Pty != pty || s.Over) return;
-                System.Threading.Thread.Sleep(5);
-            }
-        }
-
-        /// <summary>all: everything that's waiting now (before a tab moves or ends); otherwise a piece per tab.</summary>
-        void FlushOutput(bool all = false)
-        {
-            // no screen to show it on (WebView2 couldn't start): nothing is kept - it would only pile up
-            if (_webFailed)
-            {
-                foreach (Session x in _sessions.ToArray()) lock (x.Pending) x.Pending.Clear();
-                _flush.Stop();
-                System.Threading.Interlocked.Exchange(ref _flushOn, 0);
-                return;
-            }
-            // nothing waiting in any tab: stop until more comes
-            // (a tab on its way to another terminal keeps its output for that one)
-            bool any = false;
-            foreach (Session x in _sessions.ToArray()) if (!x.Moving) lock (x.Pending) if (x.Pending.Length > 0) { any = true; break; }
-            if (!any)
-            {
-                _flush.Stop();
-                System.Threading.Interlocked.Exchange(ref _flushOn, 0);
-                // a write that slipped in between: go again
-                foreach (Session x in _sessions.ToArray()) if (!x.Moving) lock (x.Pending) if (x.Pending.Length > 0) { OutputArrived(); break; }
-                return;
-            }
-            if (!_webReady) return;
-            foreach (Session s in _sessions.ToArray())
-            {
-                if (!s.Created || s.Moving) continue;
-                string text;
-                lock (s.Pending)
-                {
-                    if (s.Pending.Length == 0) continue;
-                    int take = all ? s.Pending.Length : Math.Min(s.Pending.Length, PostChars);
-                    if (take < s.Pending.Length && take > 1 && char.IsHighSurrogate(s.Pending[take - 1])) take--;     // never half a character
-                    text = s.Pending.ToString(0, take);
-                    s.Pending.Remove(0, take);
-                }
-                Post(new { t = "o", id = s.Id, d = text });
-            }
-        }
-
-        void OnMessage(object sender, CoreWebView2WebMessageReceivedEventArgs e)
-        {
-            try
-            {
-                using (JsonDocument doc = JsonDocument.Parse(e.WebMessageAsJson))
-                {
-                    JsonElement r = doc.RootElement;
-                    string kind = Str(r, "t");
-                    string id = Str(r, "id");
-                    Session s = id.Length > 0 ? _sessions.Find(delegate (Session x) { return x.Id == id; }) : null;
-                    switch (kind)
-                    {
-                        case "ready":
-                            Log.Write("Terminal: page ready");
-                            _webReady = true;
-                            PostTheme();
-                            foreach (string q in _queue) try { _web.CoreWebView2.PostWebMessageAsJson(q); } catch { }
-                            _queue.Clear();
-                            FlushOutput();
-                            FocusTerm();
-                            break;
-                        case "i":
-                            if (s == null) break;
-                            if (s.Over)
-                            {
-                                // a disconnected SSH tab: Enter connects again
-                                if (s.Conn != null && Str(r, "d").Contains("\r")) { s.Tab.Title = s.Title; Post(new { t = "o", id = s.Id, d = "\r\n" }); StartPty(s); }
-                                break;
-                            }
-                            s.Pty.Write(Str(r, "d"));
-                            break;
-                        case "r":
-                            if (s != null)
-                            {
-                                JsonElement c, rr;
-                                if (r.TryGetProperty("c", out c) && r.TryGetProperty("r", out rr))
-                                {
-                                    s.Cols = c.GetInt32(); s.Rows = rr.GetInt32();
-                                    if (!s.Over) s.Pty.Resize(s.Cols, s.Rows);
-                                }
-                            }
-                            break;
-                        case "title":
-                            if (s != null)
-                            {
-                                // an SSH tab keeps its connection's name (ssh sets the title to its own path); a shell's title only
-                                // when it's more than the program's path (cmd / PowerShell start with C:\Windows\...\x.exe)
-                                if (s.Conn != null) break;
-                                string v = Str(r, "v").Trim();
-                                if (v.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) v = "";
-                                s.Title = v.Length > 0 ? v : s.Profile.Name;
-                                s.Tab.Title = s.Title;
-                                if (s == _active && TitleChanged != null) TitleChanged();
-                            }
-                            break;
-                        case "copy":
-                            try { Clipboard.SetText(Str(r, "d")); } catch { }
-                            break;
-                        case "paste":
-                            if (s != null)
-                            {
-                                string text = "";
-                                try { if (Clipboard.ContainsText()) text = Clipboard.GetText(); } catch { }
-                                if (text.Length > 0) Post(new { t = "paste", id = s.Id, d = text });
-                            }
-                            break;
-                        case "link": OpenLink(Str(r, "u")); break;
-                        case "ser":
-                            {
-                                // the screen of a tab that's moving to another terminal
-                                Action<string> go;
-                                if (_serWait.TryGetValue(id, out go)) go(Str(r, "d"));
-                            }
-                            break;
-                        case "key":
-                            // the keys the page passes on (the keyboard is in the text window, not in vTerm's)
-                            switch (Str(r, "k"))
-                            {
-                                case "new": NewTab(null); break;
-                                case "close": if (_active != null) CloseTab(_active); break;
-                                case "next":
-                                case "prev":
-                                    if (_sessions.Count > 1)
-                                    {
-                                        int i = _sessions.IndexOf(_active);
-                                        Select(_sessions[(i + (Str(r, "k") == "prev" ? -1 : 1) + _sessions.Count) % _sessions.Count]);
-                                    }
-                                    break;
-                                case "hide": if (HideRequested != null) HideRequested(); break;
-                                case "popout": PopOutActive(); break;
-                            }
-                            break;
-                    }
-                }
-            }
-            catch (Exception ex) { Log.Write("Terminal message: " + ex.Message); }
-        }
-
-        static string Str(JsonElement e, string name)
-        {
-            JsonElement v;
-            return e.TryGetProperty(name, out v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
         }
 
         static void OpenLink(string uri)

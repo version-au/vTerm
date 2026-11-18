@@ -45,6 +45,19 @@ namespace vTerm.Ui
                     case "newwindow": OpenWindow(null); break;
                     case "closewindow": Close(); break;
                     case "options": OpenOptions(arg.Length > 0 ? arg : null); break;
+                    case "shot":
+                    {
+                        // the window's content as a PNG (the glass behind it isn't in it: it's drawn by Windows)
+                        var el = (System.Windows.FrameworkElement)Content;
+                        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(el);
+                        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)(el.ActualWidth * dpi.DpiScaleX), (int)(el.ActualHeight * dpi.DpiScaleY),
+                                                                                       dpi.PixelsPerInchX, dpi.PixelsPerInchY, System.Windows.Media.PixelFormats.Pbgra32);
+                        rtb.Render(el);
+                        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+                        using (var fs = File.Create(arg)) enc.Save(fs);
+                        break;
+                    }
                     case "dump":
                     {
                         var sb = new StringBuilder();

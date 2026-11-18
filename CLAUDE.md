@@ -1,8 +1,13 @@
 # vTerm - notes for Claude Code
 
 vTerm is a Windows 11 terminal (C# / .NET 10, WPF) in vShell's look, part of V's suite with vShell, vXplorer and vView: PowerShell,
-cmd, WSL and SSH in tabs (ConPTY + xterm.js in WebView2), saved SSH connections with a side panel and SFTP files. It was vShell's
+cmd, WSL and SSH in tabs (ConPTY + libghostty-vt, drawn by vTerm), saved SSH connections with a side panel and SFTP files. It was vShell's
 Terminal module, moved out into an app of its own (2026-11-07). Owner: V (Steven).
+
+**vTerm2 (branch `vterm2`, 0.2.x, V 2026-11-18):** xterm.js in WebView2 replaced by libghostty-vt (Ghostty's terminal engine, a C
+library, MIT - `lib\libghostty-vt\`, its README says where the DLL came from) and vTerm's own WPF renderer. Shipped as pre-releases under
+the same name / settings; if V isn't happy, go back to tag `vterm-xterm-0.1.10` (the last xterm.js vTerm) - with a higher version
+number, the updater never goes down. Merge into `main` only when V says so. `bench\` (on main) is the test bench that compared them.
 Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine's notes (working folder, remotes): `CLAUDE.local.md` (not in git).
 
 ## The plan (V, 2026-11-07)
@@ -32,8 +37,11 @@ Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine
 - "Release build" = `build.cmd` (by full path on a network share - see `CLAUDE.local.md`): `dist\vTerm.exe` (self-contained, one file),
   `dist\setup\vTerm-setup.exe` (Inno Setup, `installer\vTerm.iss`, per user, "Open in vTerm" on folders), `dist\site\vterm\` for the
   update site (vSuite.Core's `site-release.ps1`); `build.cmd upload` puts it on the site (`pre` = a pre-release). Only when V asks.
-- Log: `%APPDATA%\vTerm\vterm.log`. Settings: `%APPDATA%\vTerm\settings.json` (`AppSettings`). WebView2 data and the extracted
-  page: `%APPDATA%\vTerm\WebView2`, `\terminal`.
+- Log: `%APPDATA%\vTerm\vterm.log`. Settings: `%APPDATA%\vTerm\settings.json` (`AppSettings`). (`%APPDATA%\vTerm\WebView2` and
+  `\terminal` are left over from the xterm.js vTerm - unused, left alone while going back is possible.)
+- `ghostty-vt.dll` is copied next to vTerm.exe when built and goes inside it when published as one file (checked: the published exe
+  runs it). To update it: `bench\get-ghostty.ps1 -Version <new>` (checks SHA256SUMS), copy `bench\native\ghostty-vt.dll` + LICENSE into
+  `lib\libghostty-vt\` and update its README.txt. Its C ABI is stable across 1.x.
 - Tests: `VTERM_DATA_DIR` (settings + log) to a scratch folder, `VTERM_VSHELL_DIR` (theme / import source). Stop only the test's own
   process (`taskkill /T /F /PID n` - its shells are child processes). The first start of a scratch folder imports V's real vShell
   terminal settings into it (read only - vShell's file isn't changed).
@@ -61,11 +69,20 @@ Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine
   the tabs (update, menu, keep on top, min / max / close); moves by the strip; tabs move between windows (`NewWindowFor`,
   `OtherWindows`); `Run(StartRequest)`; WM_COPYDATA hand-offs. `StartRequest` - the command line (`--profile --dir --run --title --ssh
   --host --name --user --why --new-window`, a folder), and resolving `--host` to a saved connection (or offering to save one).
-- `TerminalView(.Panel).cs`, `TermSurface`, `TermSftp`, `TermDialogs` - from vShell (see vShell's CLAUDE.md for the
-  history): the text is drawn in `TermSurface`, a separate non-layered window tracked over the terminal area; `TermLook` stands in for
-  vShell's Theme. `FormWindow` (+ `Looks`; vSuite.Core's since 1.0.27) replaces vShell's FormWindow / PromptWindow / Questions.
-- `DropDown` - vShell's drop-down (layered: shadow room, vSuite `Glass`, the card; slides with a TranslateTransform while the text window
-  is suspended), placed where the TermRequest says (X / Y / W / H = the card in device pixels, its bar side against the bar). `Handle`
+- `TerminalView(.Panel).cs`, `TermSftp`, `TermDialogs` - from vShell (see vShell's CLAUDE.md for the history): tabs, sessions, the
+  side panel. `TermLook` stands in for vShell's Theme. `FormWindow` (+ `Looks`; vSuite.Core's since 1.0.27) replaces vShell's
+  FormWindow / PromptWindow / Questions.
+- The terminal (0.2.0): `Core\Ghostty.cs` (`Gt`: the C API's P/Invoke - names / numbers are the headers', bench\native\include after
+  get-ghostty.ps1), `Core\TermEngine.cs` (one per tab: the terminal, its render state, key / mouse encoders, selection gestures,
+  formatter; every call holds `Lock`; ConPty's `Data` bytes go straight in on the reader thread (`Feed`); the library's answers to the
+  shell come out as `Reply` after the lock is let go - never write to the pty inside the callback), `Ui\TermScreen.cs` (the renderer and
+  input: one DrawingVisual per row, only dirty rows redrawn, GlyphRuns on a cell grid snapped to device pixels with per-character font
+  fallback, frames at Background priority at most every 8 ms so input comes first; keys via `PressKey` (`KeyMap`: GhosttyKey codes and
+  ToUnicodeEx text) - text-typing keys come through TextInput; mouse: selection gestures, or the program's mouse when it asked (Shift
+  overrides), the wheel, Ctrl+click links; the scrollbar; the IME window at the cursor). A tab's engine moves with it between windows
+  (no serialising). WPF can't draw colour fonts: emoji are one colour.
+- `DropDown` - vShell's drop-down (layered: shadow room, vSuite `Glass`, the card with the text on it; slides with a TranslateTransform),
+  placed where the TermRequest says (X / Y / W / H = the card in device pixels, its bar side against the bar). `Handle`
   = toggle / show / hide ("shown" / "hidden"); hides on leave (`LeftSoon`), Shift+Esc, Alt+F4.
 - `Hub` - settings + vShell's theme for everyone, `Handle(TermRequest)` (the pipe: toggle / show / hide, open-host, args, quit-if-idle;
   anything that may ask a question runs a moment later so the pipe answers at once), `MaybeQuit` (ShutdownMode is explicit: vTerm ends
@@ -73,13 +90,12 @@ Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine
   "args" there first (then the older Instance hand-off); `--background` = started by vShell, no window (ends after a minute unused).
 - Tabs (0.1.4): vSuite.Core's `TabStrip` (vXplorer's look, arrows, sliding drag, tear out); `TerminalView.Drag.cs` hears it (Picked
   selects without focus, PressEnded focuses the text, MovedTo = `MoveTo` the other terminal, TornOut = `DropPoint` + `PopOut`;
-  `OwnsWindow` = the text window, so a drop on the text counts; `CanTearLast` = `LastTabCanLeave`). Before 0.1.4 - dragging a tab: press = capture + `TabPressed` (FocusTerm waits - the window activating handed the
+  `CanTearLast` = `LastTabCanLeave`). Before 0.1.4 - dragging a tab: press = capture + `TabPressed` (FocusTerm waits - the window activating handed the
   keyboard to the text window, which cut the press off), moved 8 px = a drag (`TabGhost` follows the pointer; the button is read with
   GetAsyncKeyState), release = `Drop`: `ViewAt` (WindowFromPoint's root vs every live view's window / text window) - own strip: `Reorder`;
   another view: `MoveTo`; open desktop: `DropPoint` + `NewWindowFor` (MainWindow puts the new window there), or the window's only tab moves
-  the window. `LastTabCanLeave` = the drop-down (its only tab can go). `KeepOffEdges` (MainWindow): the text window stays 7 px clear of
-  the left / right / bottom edges so the window resizes - WebView2's child window ("Chrome Legacy Window") takes WM_NCHITTEST there, so a
-  pass-through on TermSurface can't work.
+  the window. `LastTabCanLeave` = the drop-down (its only tab can go). (Before 0.2.0 the text was a separate window over the terminal,
+  `TermSurface`, with `KeepOffEdges` / `Suspend` / `Track` to work around it - all gone.)
 - `OptionsWindow` (OptionsWindowBase: General, Look, Connections, Updates, About), `NoticeWindow` (vSuite.Core's CornerWindow / NoticeWindow since 1.0.27, from vView's - the text window
   would cover a notice drawn in the window), `Brand` (the icon).
 
@@ -87,11 +103,14 @@ Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine
 
 - Windows PowerShell's `Get-Content -Raw` reads UTF-8 files without a BOM as ANSI - it broke the Segoe Fluent glyphs when files were
   copied over from vShell. Use `[IO.File]::ReadAllText(path, [Text.Encoding]::UTF8)`.
-- vShell's notes on the terminal still hold: never Measure tabs in ArrangeOverride (TermTabsPanel); WebView2 keeps the keyboard in its
-  own window, so vTerm's keys come back from the page as `key` messages; menus are placed at the pointer by hand (`OpenAtPointer`).
+- vShell's notes on the terminal still hold: never Measure tabs in ArrangeOverride (TermTabsPanel); menus are placed at the pointer by
+  hand (`OpenAtPointer`).
+- Tests that start vTerm from a shell tool: give it its own output handles (`Start-Process -RedirectStandardOutput <file>`), or the tool
+  waits for vTerm to exit (it holds the tool's pipe).
 
 ## Tests
 
 - `dotnet test tests\vTerm.Tests` (xunit) - the parts with no window: the command line and its hand-off, quick SSH addresses, finding a saved connection, profiles as text. Run them after changing `src\Core` or the command line; add tests for new window-less code.
-- `VTERM_TEST_HOOKS=1`: a test drives vTerm by WM_COPYDATA (`MainWindow.TestHooks.cs` + `TerminalView.TestHooks.cs` - newtab / tab / close / type (to the shell) / moveout / newwindow / closewindow / options / dump), sent with `vSuite.Core\scripts\test-send.ps1 -ProcessId N -Command "…" -Title "- vTerm"`; `VTERM_TEST_ASK=yes|no`. **Use these, not the real mouse or keyboard.**
+- `VTERM_TEST_HOOKS=1`: a test drives vTerm by WM_COPYDATA (`MainWindow.TestHooks.cs` + `TerminalView.TestHooks.cs` - newtab / tab / close / type (to the shell) / text (typed, through the screen) / key (e.g. `key Ctrl+C`, through the screen's key
+  handling) / wheel / selectall / copy / paste / moveout / newwindow / closewindow / options / shot (a PNG) / dump (with the front tab's last lines)), sent with `vSuite.Core\scripts\test-send.ps1 -ProcessId N -Command "…" -Title "- vTerm"`; `VTERM_TEST_ASK=yes|no`. **Use these, not the real mouse or keyboard.**
 - **Differs from the design guide on purpose (V, 2026-11-08):** Options' pages are General, Look, Connections, Updates, About - Connections stays after Look (the guide puts an app's own pages before Look). Keep it.

@@ -17,7 +17,7 @@ namespace vTerm.Ui
     /// the bar's edge, in screen pixels - and how it looks (the bar's corners, outline and glass); the colours are the vShell theme's. It
     /// slides out of the bar (or fades in, when it isn't attached), takes the keyboard, and hides again when you click elsewhere (if that's
     /// on), with Shift+Esc, or its hide button. Hidden, its shells keep running. Drawn like vShell's own drop-down was: a layered window
-    /// with room for the shadow, the glass and the card; the text is in the TerminalView's own text window, as everywhere.
+    /// with room for the shadow, the glass and the card; the text is drawn on the card, so it slides with it.
     /// </summary>
     public sealed class DropDown : Window
     {
@@ -71,7 +71,6 @@ namespace vTerm.Ui
 
             _view = new TerminalView(s);
             _view.Emptied += delegate { HideTerm(); };
-            _view.SurfaceDeactivated += LeftSoon;
             _view.HideRequested = HideTerm;
             _view.OpenSettings = delegate { HideTerm(); MainWindow.OpenOptionsAnywhere(null); };
             _view.NewWindowFor = delegate (TerminalView.Handoff h) { HideTerm(); MainWindow.OpenWith(h); };
@@ -135,7 +134,7 @@ namespace vTerm.Ui
             if (r.Cmd == "toggle")
             {
                 if (_hiding) return "hidden";
-                if (IsVisible && (IsActive || _view.SurfaceActive)) { HideTerm(); return "hidden"; }
+                if (IsVisible && IsActive) { HideTerm(); return "hidden"; }
                 // a click on the bar's button just hid it (it lost the keyboard to the bar): that click means hide, not show again
                 if (!IsVisible && (DateTime.UtcNow - _hiddenAt).TotalMilliseconds < 350 && _hiddenFrom == r.Bar) return "hidden";
             }
@@ -170,14 +169,13 @@ namespace vTerm.Ui
         void Reveal()
         {
             Opacity = 1;
-            _view.Suspend(true);        // the text window waits until the drop-down is in place
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             DoubleAnimation a;
             if (_req.Attached)
             {
                 double from = (_req.FromTop ? -1 : 1) * Math.Max(40, ActualHeight);
                 a = new DoubleAnimation(from, 0, TimeSpan.FromMilliseconds(190)) { EasingFunction = ease };
-                a.Completed += delegate { _view.Suspend(false); _view.FocusTerm(); };
+                a.Completed += delegate { _view.FocusTerm(); };
                 _slide.BeginAnimation(TranslateTransform.YProperty, a);
             }
             else
@@ -185,7 +183,7 @@ namespace vTerm.Ui
                 _slide.BeginAnimation(TranslateTransform.YProperty, null);
                 _slide.Y = 0;
                 a = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(130));
-                a.Completed += delegate { _view.Suspend(false); _view.FocusTerm(); };
+                a.Completed += delegate { _view.FocusTerm(); };
                 BeginAnimation(OpacityProperty, a);
             }
         }
@@ -194,7 +192,6 @@ namespace vTerm.Ui
         {
             if (!IsVisible || _hiding) return;
             _hiding = true;
-            _view.Suspend(true);        // the text window goes first (it can't slide)
             var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
             DoubleAnimation a;
             if (_req != null && _req.Attached)
@@ -223,15 +220,15 @@ namespace vTerm.Ui
             _hiddenFrom = _req != null ? _req.Bar : 0;
         }
 
-        /// <summary>The drop-down or its text window lost the keyboard: once it's clear where it went, hide (when that's on) - not when it
-        /// went from one to the other (clicking the tabs / the text) or to one of its dialogs.</summary>
+        /// <summary>The drop-down lost the keyboard: once it's clear where it went, hide (when that's on) - not when it went to one of its
+        /// dialogs.</summary>
         void LeftSoon()
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
             {
                 if (_quitting || !IsVisible || _hiding || _req == null || !_req.HideOnLeave || _view.InDialog) return;
                 IntPtr fg = Native.GetForegroundWindow();
-                if (fg == _hwnd || (fg != IntPtr.Zero && fg == _view.SurfaceHandle)) return;
+                if (fg == _hwnd) return;
                 if (fg != IntPtr.Zero && Native.GetWindowRel(fg, 4) == _hwnd) return;      // a window it owns (a dialog)
                 uint pid;
                 if (fg != IntPtr.Zero && Native.GetWindowThreadProcessId(fg, out pid) != 0 && pid == (uint)Environment.ProcessId)

@@ -99,7 +99,6 @@ namespace vTerm.Ui
             S.PanelOpen = !S.PanelOpen;
             _side.Visibility = S.PanelOpen ? Visibility.Visible : Visibility.Collapsed;
             _s.SaveSoon();
-            Track();
         }
 
         void PanelTheme()

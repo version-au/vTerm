@@ -64,7 +64,7 @@ namespace vTerm.Ui
                 UseAeroCaptionButtons = false
             });
 
-            _view = new TerminalView(s) { KeepOffEdges = true };    // so the window can be resized from its edges
+            _view = new TerminalView(s);
             _view.Emptied += delegate { if (!_closing) { _quiet = true; Dispatcher.BeginInvoke(new Action(Close)); } };
             _view.StripPressed += OnStripPressed;
             _view.TitleChanged += delegate { string a = _view.ActiveTitle; Title = a.Length > 0 ? a + " - vTerm" : "vTerm"; };
@@ -100,8 +100,8 @@ namespace vTerm.Ui
                 }
                 ApplyTheme();
             };
-            StateChanged += delegate { UpdateMaximized(); if (WindowState != WindowState.Minimized) _view.Retrack(); };
-            // clicked / Alt+Tabbed to: the keyboard goes to the text (it lives in its own window over this one)
+            StateChanged += delegate { UpdateMaximized(); };
+            // clicked / Alt+Tabbed to: the keyboard goes to the text
             Activated += delegate { _view.FocusTerm(); };
             Loaded += delegate
             {
@@ -160,7 +160,6 @@ namespace vTerm.Ui
                 w.Topmost = w._s.Topmost;
                 w.ApplyTheme();
                 w.Buttons();
-                w._view.Retrack();
             }
         }
 
@@ -229,7 +228,7 @@ namespace vTerm.Ui
         {
             _s.Topmost = !_s.Topmost;
             _s.SaveSoon();
-            foreach (MainWindow w in All) { w.Topmost = _s.Topmost; w.Buttons(); w._view.Retrack(); }
+            foreach (MainWindow w in All) { w.Topmost = _s.Topmost; w.Buttons(); }
         }
 
         void ShowMenu()

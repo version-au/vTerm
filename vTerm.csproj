@@ -12,16 +12,17 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- made by running vTerm.exe with make-icon (the drawing is src\Ui\Brand.cs), in vShell's default colours; the window's icon follows the theme -->
     <ApplicationIcon>vterm.ico</ApplicationIcon>
-    <Version>0.1.10</Version>
+    <Version>0.2.0</Version>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- the terminal's display: WebView2 shows xterm.js (the page and scripts below are built into vTerm.exe) -->
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
     <!-- the file panel (SFTP) and copying your key to a server -->
     <PackageReference Include="SSH.NET" Version="2026.0.0" />
-    <EmbeddedResource Include="src\Terminal\*.html;src\Terminal\*.js;src\Terminal\*.css;src\Terminal\*.txt" LogicalName="vTerm.Terminal.%(Filename)%(Extension)" />
+    <!-- the terminal itself: libghostty-vt (Ghostty's terminal engine, MIT - lib\libghostty-vt\README.txt); vTerm draws its screen.
+         Next to vTerm.exe when built, inside it when published as one file (IncludeNativeLibrariesForSelfExtract) -->
+    <None Include="lib\libghostty-vt\ghostty-vt.dll" Link="ghostty-vt.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- the suite's shared library (git submodule vSuite.Core): theme, glass, styles, questions, log, updater, Options blocks -->

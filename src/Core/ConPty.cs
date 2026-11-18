@@ -75,6 +75,9 @@ namespace vTerm.Core
 
         /// <summary>Text the shell wrote (VT codes included). On a background thread.</summary>
         public event Action<string> Output;
+        /// <summary>The bytes the shell wrote (UTF-8 with VT codes), as they came: the buffer is reused after the handler returns. On a
+        /// background thread.</summary>
+        public event Action<byte[], int> Data;
         /// <summary>The shell ended (its exit code). On a background thread.</summary>
         public event Action<int> Exited;
 
@@ -158,6 +161,9 @@ namespace vTerm.Core
                 {
                     int n = _out.Read(buf, 0, buf.Length);
                     if (n <= 0) break;
+                    Action<byte[], int> d = Data;
+                    if (d != null) d(buf, n);
+                    if (Output == null) continue;
                     int c = _utf8.GetChars(buf, 0, n, chars, 0, false);     // keeps a character split across two reads
                     if (c > 0)
                     {
@@ -188,6 +194,14 @@ namespace vTerm.Core
         {
             if (string.IsNullOrEmpty(text) || _in == null || _disposed != 0) return;
             byte[] b = Encoding.UTF8.GetBytes(text);
+            try { lock (_writeLock) { _in.Write(b, 0, b.Length); _in.Flush(); } }
+            catch (Exception) { }
+        }
+
+        /// <summary>Bytes for the shell as they are (keys already encoded by the terminal, its answers to the shell's questions).</summary>
+        public void Write(byte[] b)
+        {
+            if (b == null || b.Length == 0 || _in == null || _disposed != 0) return;
             try { lock (_writeLock) { _in.Write(b, 0, b.Length); _in.Flush(); } }
             catch (Exception) { }
         }

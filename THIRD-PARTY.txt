@@ -4,13 +4,9 @@ vSuite.Core - the suite's shared library (theme, windows, updates)
   (c) 2026 Steven Van Teylingen (version-au) - https://github.com/version-au/vSuite.Core
   Licence: MIT.
 
-xterm.js and its fit, serialize, unicode11 and web-links add-ons - the terminal itself (src\Terminal, unchanged)
-  (c) The xterm.js authors, SourceLair Private Company and Christopher Jeffrey - https://github.com/xtermjs/xterm.js
-  Licence: MIT.
-
-Microsoft Edge WebView2 SDK - the browser view (the browser engine itself is part of Windows)
-  (c) Microsoft Corporation - https://aka.ms/webview2
-  Licence: BSD 3-clause (see the Microsoft.Web.WebView2 package).
+libghostty-vt 1.0.1 - the terminal itself (its screen, scrollback and keys; vTerm draws it) - lib\libghostty-vt, unchanged
+  (c) 2024 Mitchell Hashimoto, Ghostty contributors - https://lib.ghostty.org/vt/
+  Licence: MIT (lib\libghostty-vt\LICENSE).
 
 SSH.NET - SSH and SFTP
   (c) Renci and the SSH.NET contributors - https://github.com/sshnet/SSH.NET
