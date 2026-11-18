@@ -75,7 +75,13 @@ namespace vTerm.Ui
                             sb.AppendLine("window: " + w.Title + (w.IsActive ? " (in front)" : ""));
                             sb.Append(w._view.TestDump());
                         }
-                        if (DropDown.Current != null) { sb.AppendLine("drop-down:"); sb.Append(DropDown.Current.View.TestDump()); }
+                        if (DropDown.Current != null)
+                        {
+                            sb.AppendLine("drop-down: " + (DropDown.Current.IsVisible ? "shown" : "hidden") + (DropDown.Current.IsActive ? ", active" : "") +
+                                          ", keyboard on " + (System.Windows.Input.Keyboard.FocusedElement != null ? System.Windows.Input.Keyboard.FocusedElement.GetType().Name : "nothing") +
+                                          ", mouse captured by " + (System.Windows.Input.Mouse.Captured != null ? System.Windows.Input.Mouse.Captured.GetType().Name : "nothing"));
+                            sb.Append(DropDown.Current.View.TestDump());
+                        }
                         File.WriteAllText(arg, sb.ToString());
                         break;
                     }

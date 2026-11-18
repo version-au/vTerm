@@ -3,6 +3,12 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.3: the drop-down hides when you leave it
+1. Open the drop-down with vShell's hotkey, click the desktop: it hides. Again, click in its text first, then a PowerShell window / a vShell bar: it hides. The same after clicking its tabs.
+2. The hotkey again while it's down: it hides (it didn't when Windows hadn't marked it active).
+3. A dialog from its side panel (a connection's settings), a question it asks: it stays down. With Hide on leave off in vShell: it stays down.
+4. Test hooks: TermLink "toggle", then scratch ddclick.ps1 (posted click, then another window takes the foreground); the dump says "drop-down: hidden".
+
 ## 0.2.2: updating with the drop-down used
 1. Open the drop-down from a vShell bar (a tab in it), then install an update (Options > Updates, a pre-release): vTerm restarts within a couple of seconds - vterm.log shows no "didn't close within 20 s". Test hook: open the drop-down (TermLink "toggle"), then `updateclose`: the process ends at once ("vTerm ending (nothing open)").
 2. Without an update: Alt+F4 in the drop-down still only hides it, its shells keep running.

@@ -90,6 +90,7 @@ namespace vTerm.Ui
             _card.SizeChanged += delegate { UpdateShadowClip(); };
 
             Deactivated += delegate { LeftSoon(); };
+            _leave.Tick += delegate { LeaveTick(); };
             PreviewKeyDown += delegate (object o, KeyEventArgs e) { if (e.Key == Key.Escape && (Keyboard.Modifiers & ModifierKeys.Shift) != 0) { e.Handled = true; HideTerm(); } };
             Closing += delegate (object o, System.ComponentModel.CancelEventArgs e)
             {
@@ -147,7 +148,7 @@ namespace vTerm.Ui
             if (r.Cmd == "toggle")
             {
                 if (_hiding) return "hidden";
-                if (IsVisible && IsActive) { HideTerm(); return "hidden"; }
+                if (InFront) { HideTerm(); return "hidden"; }
                 // a click on the bar's button just hid it (it lost the keyboard to the bar): that click means hide, not show again
                 if (!IsVisible && (DateTime.UtcNow - _hiddenAt).TotalMilliseconds < 350 && _hiddenFrom == r.Bar) return "hidden";
             }
@@ -166,6 +167,8 @@ namespace vTerm.Ui
             ApplyLook();
             Place();
             ForceForeground();
+            _wasFront = false;
+            _leave.Start();
             if (!wasVisible) Reveal();
             else _view.FocusTerm();
         }
@@ -223,6 +226,7 @@ namespace vTerm.Ui
 
         void Done()
         {
+            _leave.Stop();
             Hide();
             _slide.BeginAnimation(TranslateTransform.YProperty, null);
             _slide.Y = 0;
@@ -239,20 +243,44 @@ namespace vTerm.Ui
         {
             Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(delegate
             {
-                if (_quitting || !IsVisible || _hiding || _req == null || !_req.HideOnLeave || _view.InDialog) return;
-                IntPtr fg = Native.GetForegroundWindow();
-                if (fg == _hwnd) return;
-                if (fg != IntPtr.Zero && Native.GetWindowRel(fg, 4) == _hwnd) return;      // a window it owns (a dialog)
-                uint pid;
-                if (fg != IntPtr.Zero && Native.GetWindowThreadProcessId(fg, out pid) != 0 && pid == (uint)Environment.ProcessId)
-                {
-                    // one of vTerm's own dialogs / questions (asked from here): stay
-                    foreach (Window w in Application.Current.Windows)
-                        if (!(w is MainWindow) && w != this && w.IsActive) return;
-                }
+                if (_quitting || !IsVisible || _hiding || _req == null || !_req.HideOnLeave) return;
+                if (Stays(Native.GetForegroundWindow())) return;
                 HideTerm();
             }));
         }
+
+        /// <summary>The drop-down stays while this window has the keyboard: itself, a dialog it owns, one of vTerm's own questions
+        /// (not a vTerm window), or while the side panel has a dialog open.</summary>
+        bool Stays(IntPtr fg)
+        {
+            if (_view.InDialog || fg == _hwnd || fg == IntPtr.Zero) return true;
+            if (Native.GetWindowRel(fg, 4) == _hwnd) return true;      // a window it owns (a dialog)
+            uint pid;
+            if (Native.GetWindowThreadProcessId(fg, out pid) != 0 && pid == (uint)Environment.ProcessId)
+                foreach (Window w in Application.Current.Windows)
+                    if (w != this && !(w is MainWindow) && new WindowInteropHelper(w).Handle == fg) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Leaving, checked a few times a second while it's shown: Windows can give the drop-down the keyboard (it's brought forward for
+        /// vShell's hotkey / button) without ever making it "active" - then no Deactivated comes when you click elsewhere, and it stayed
+        /// down. Once it has had the foreground, anything else taking it hides it.
+        /// </summary>
+        readonly DispatcherTimer _leave = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(150) };
+        bool _wasFront;
+
+        void LeaveTick()
+        {
+            if (_quitting || !IsVisible || _hiding || _req == null || !_req.HideOnLeave) return;
+            IntPtr fg = Native.GetForegroundWindow();
+            if (fg == _hwnd) { _wasFront = true; return; }
+            if (!_wasFront || Stays(fg)) return;
+            HideTerm();
+        }
+
+        /// <summary>The drop-down has the keyboard (Windows' foreground - WPF's IsActive can miss it).</summary>
+        bool InFront { get { return IsVisible && (IsActive || (_hwnd != IntPtr.Zero && Native.GetForegroundWindow() == _hwnd)); } }
 
         void ForceForeground()
         {

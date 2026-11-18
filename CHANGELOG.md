@@ -1,5 +1,10 @@
 # vTerm changelog
 
+## 0.2.3
+
+- The drop-down hides again when you click elsewhere (the desktop, another window, a vShell bar) after opening it with the hotkey or clicking in its text.
+- Pressing the hotkey while the drop-down is open hides it.
+
 ## 0.2.2 · pre-release
 
 - Updating no longer takes 20 seconds to restart vTerm after the drop-down has been used: the drop-down closes with everything else.

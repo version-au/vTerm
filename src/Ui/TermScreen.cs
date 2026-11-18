@@ -743,6 +743,9 @@ namespace vTerm.Ui
         {
             base.OnMouseDown(e);
             if (_e == null) return;
+            // a click makes its window the active one (as a click on the tabs does): the drop-down relies on that to hide when you leave
+            Window win = Window.GetWindow(this);
+            if (win != null && !win.IsActive) win.Activate();
             Focus();
             Keyboard.Focus(this);
             Point p = e.GetPosition(this);
