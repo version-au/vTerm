@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A test bench, not part of vTerm: libghostty-vt (with a small WPF renderer) against vTerm's xterm.js in WebView2.
+       Get the library first: powershell -File bench\get-ghostty.ps1. Run: dotnet run -c Release (see README.md). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>GhosttyBench</RootNamespace>
+    <PlatformTarget>x64</PlatformTarget>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>..\app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3179.45" />
+    <!-- vTerm's own ConPTY class, unchanged -->
+    <Compile Include="..\src\Core\ConPty.cs" Link="ConPty.cs" />
+    <None Include="native\ghostty-vt.dll;native\ghostty-vt.pdb" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" Condition="Exists('native\ghostty-vt.dll')" />
+    <None Include="web\bench.html" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

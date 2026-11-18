@@ -1,0 +1,63 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://vterm.local/xterm.css">
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
+  .t { position: absolute; left: 10px; top: 6px; }
+  /* off the page: xterm.js stops drawing a terminal it can't see (IntersectionObserver), so this times its parser alone */
+  .t.off { left: -20000px; }
+</style>
+<!-- vTerm's own xterm.js and add-ons (src\Terminal), as term.html loads them -->
+<script src="https://vterm.local/xterm.js"></script>
+<script src="https://vterm.local/addon-unicode11.js"></script>
+</head>
+<body>
+<div id="wrap"></div>
+<script>
+  const host = window.chrome.webview;
+  const terms = {};
+  function send(o) { host.postMessage(o); }
+  function frames(n, f) { if (n <= 0) f(); else requestAnimationFrame(function () { frames(n - 1, f); }); }
+
+  function make(id, cols, rows, off) {
+    const el = document.createElement('div');
+    el.className = 't' + (off ? ' off' : '');
+    document.getElementById('wrap').appendChild(el);
+    // vTerm's options (term.html), at a fixed size
+    const term = new Terminal({ allowProposedApi: true, allowTransparency: true, cursorBlink: true, scrollback: 10000, cols: cols, rows: rows,
+                                fontFamily: "'Cascadia Mono', Consolas, 'Courier New', monospace", fontSize: 13 });
+    try { term.loadAddon(new Unicode11Addon.Unicode11Addon()); term.unicode.activeVersion = '11'; } catch (e) { }
+    term.open(el);
+    terms[id] = { term: term, el: el };
+  }
+
+  host.addEventListener('message', function (ev) {
+    const m = ev.data;
+    switch (m.t) {
+      case 'new': make(m.id, m.cols, m.rows, m.off); frames(2, function () { send({ t: 'made', id: m.id }); }); break;
+      case 'o': terms[m.id].term.write(m.d); break;
+      // everything written so far is parsed (write's callback), then drawn (two animation frames)
+      case 'sync': terms[m.id].term.write('', function () { frames(2, function () { send({ t: 'synced', id: m.id }); }); }); break;
+      case 'reset': terms[m.id].term.reset(); terms[m.id].term.clear(); frames(2, function () { send({ t: 'wasreset', id: m.id }); }); break;
+      case 'close': terms[m.id].term.dispose(); terms[m.id].el.remove(); delete terms[m.id]; send({ t: 'closed', id: m.id }); break;
+      case 'run': {
+        // a whole workload from a file, written as fast as xterm.js takes it (128K-character pieces, as vTerm posts them)
+        fetch(m.url).then(function (r) { return r.text(); }).then(function (text) {
+          const term = terms[m.id].term;
+          const t0 = performance.now();
+          for (let i = 0; i < text.length; i += m.chunk) term.write(text.substring(i, i + m.chunk));
+          term.write('', function () {
+            const parsed = performance.now() - t0;
+            frames(2, function () { send({ t: 'ran', id: m.id, ms: parsed, drawnMs: performance.now() - t0, chars: text.length }); });
+          });
+        });
+        break;
+      }
+    }
+  });
+  send({ t: 'ready' });
+</script>
+</body>
+</html>

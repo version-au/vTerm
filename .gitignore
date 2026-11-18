@@ -5,3 +5,6 @@ dist/
 .vs/
 # this machine's notes for Claude Code (working folder, remotes)
 CLAUDE.local.md
+
+# the bench's libghostty-vt download (bench\get-ghostty.ps1)
+bench/native/

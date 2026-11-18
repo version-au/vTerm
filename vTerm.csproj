@@ -42,4 +42,12 @@
     <EmbeddedResource Remove="tests\**" />
   </ItemGroup>
 
+  <!-- bench\ is a test bench of its own (libghostty-vt against xterm.js), not part of vTerm -->
+  <ItemGroup>
+    <Compile Remove="bench\**" />
+    <Page Remove="bench\**" />
+    <None Remove="bench\**" />
+    <EmbeddedResource Remove="bench\**" />
+  </ItemGroup>
+
 </Project>
