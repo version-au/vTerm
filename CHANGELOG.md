@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.2.3
+## 0.2.3 · pre-release
 
 - The drop-down hides again when you click elsewhere (the desktop, another window, a vShell bar) after opening it with the hotkey or clicking in its text.
 - Pressing the hotkey while the drop-down is open hides it.
