@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.2.0
+## 0.2.0 · pre-release
 
 - vTerm2 (a preview): the terminal is now libghostty-vt (Ghostty's terminal engine), drawn by vTerm itself - xterm.js and WebView2 are gone.
 - About half the memory: no browser processes (a vTerm with one tab: about 130 MB, was 280 MB; five busy tabs: about 175 MB, was 420 MB).
