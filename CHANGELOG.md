@@ -1,5 +1,9 @@
 # vTerm changelog
 
+## 0.2.2
+
+- Updating no longer takes 20 seconds to restart vTerm after the drop-down has been used: the drop-down closes with everything else.
+
 ## 0.2.1 · pre-release
 
 - Selecting with the mouse shows the highlight as you drag (it only appeared once the shell wrote something).

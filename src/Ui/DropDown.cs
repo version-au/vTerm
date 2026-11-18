@@ -94,12 +94,25 @@ namespace vTerm.Ui
             Closing += delegate (object o, System.ComponentModel.CancelEventArgs e)
             {
                 if (_quitting) return;
+                if (UpdateCenter.Installing)
+                {
+                    // an update closes every window to restart vTerm: the drop-down goes too (with its shells), or vTerm never ends
+                    // and the update's watchdog has to end it after 20 s
+                    _quitting = true;
+                    try { _view.EndAll(); } catch { }
+                    return;
+                }
                 e.Cancel = true;        // Alt+F4 hides it; the shells keep running
                 HideTerm();
             };
             Action themeChanged = delegate { Dispatcher.BeginInvoke(new Action(delegate { if (_req != null) ApplyLook(); })); };
             _themeSource.Changed += themeChanged;
-            Closed += delegate { _themeSource.Changed -= themeChanged; if (_one == this) _one = null; };
+            Closed += delegate
+            {
+                _themeSource.Changed -= themeChanged;
+                if (_one == this) _one = null;
+                Dispatcher.BeginInvoke(new Action(Hub.MaybeQuit));     // the last thing open (an update closing everything): vTerm ends
+            };
         }
 
         bool _quitting;

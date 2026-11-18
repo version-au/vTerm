@@ -3,6 +3,10 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.2: updating with the drop-down used
+1. Open the drop-down from a vShell bar (a tab in it), then install an update (Options > Updates, a pre-release): vTerm restarts within a couple of seconds - vterm.log shows no "didn't close within 20 s". Test hook: open the drop-down (TermLink "toggle"), then `updateclose`: the process ends at once ("vTerm ending (nothing open)").
+2. Without an update: Alt+F4 in the drop-down still only hides it, its shells keep running.
+
 ## 0.2.1: the selection shows while dragging
 1. Drag across some text at an idle prompt: the highlight follows the pointer as you drag. Double-click a word, triple-click a line: highlighted at once. A plain click clears it at once. Test hook: `drag 10 9 40 12` then `shot`.
 

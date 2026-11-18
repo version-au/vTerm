@@ -45,6 +45,14 @@ namespace vTerm.Ui
                     case "newwindow": OpenWindow(null); break;
                     case "closewindow": Close(); break;
                     case "options": OpenOptions(arg.Length > 0 ? arg : null); break;
+                    case "updateclose":
+                    {
+                        // what an update does once the new version is staged: Installing on, every window closed the normal way
+                        typeof(UpdateCenter).GetProperty("Installing").SetValue(null, true);
+                        foreach (System.Windows.Window w in System.Linq.Enumerable.ToList(System.Linq.Enumerable.Cast<System.Windows.Window>(System.Windows.Application.Current.Windows)))
+                            try { w.Close(); } catch { }
+                        break;
+                    }
                     case "shot":
                     {
                         // the window's content as a PNG (the glass behind it isn't in it: it's drawn by Windows)
