@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.2.4
+## 0.2.4 · pre-release
 
 - Emoji in colour, drawn by Windows as everywhere else.
 - Skin tones, joined emoji (a family, the rainbow flag) and symbols like ⚠️ ❤️ show as one full-size emoji, not in pieces.
