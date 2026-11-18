@@ -1,5 +1,9 @@
 # vTerm changelog
 
+## 0.2.1
+
+- Selecting with the mouse shows the highlight as you drag (it only appeared once the shell wrote something).
+
 ## 0.2.0 · pre-release
 
 - vTerm2 (a preview): the terminal is now libghostty-vt (Ghostty's terminal engine), drawn by vTerm itself - xterm.js and WebView2 are gone.

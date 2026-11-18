@@ -310,6 +310,14 @@ namespace vTerm.Core
         /// the selection that makes is shown (none = cleared). True when something is selected.</summary>
         public bool Gesture(int type, int col, int row, double x, double y, Gt.GestureGeometry geo, ulong timeNs)
         {
+            bool selected = GestureLocked(type, col, row, x, y, geo, timeNs);
+            // the selection (or its clearing) shows now - the screen draws when told something changed
+            if (Changed != null) Changed();
+            return selected;
+        }
+
+        bool GestureLocked(int type, int col, int row, double x, double y, Gt.GestureGeometry geo, ulong timeNs)
+        {
             lock (Lock)
             {
                 if (_term == IntPtr.Zero) return false;

@@ -50,6 +50,15 @@ namespace vTerm.Ui
                     return true;
                 }
                 case "wheel": { int d; if (int.TryParse(arg, out d)) _screen.TestWheel(d); return true; }
+                case "drag":
+                {
+                    // drag c1 r1 c2 r2 (cells of the view, from 0)
+                    string[] p = arg.Split(' ');
+                    int c1, r1, c2, r2;
+                    if (p.Length == 4 && int.TryParse(p[0], out c1) && int.TryParse(p[1], out r1) && int.TryParse(p[2], out c2) && int.TryParse(p[3], out r2))
+                        _screen.TestDrag(c1, r1, c2, r2);
+                    return true;
+                }
                 case "selectall": if (_active != null && _active.Engine != null) _active.Engine.SelectAll(); return true;
                 case "copy": _screen.Copy(); return true;
                 case "paste": _screen.Paste(); return true;

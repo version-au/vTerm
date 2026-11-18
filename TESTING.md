@@ -3,6 +3,9 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.1: the selection shows while dragging
+1. Drag across some text at an idle prompt: the highlight follows the pointer as you drag. Double-click a word, triple-click a line: highlighted at once. A plain click clears it at once. Test hook: `drag 10 9 40 12` then `shot`.
+
 ## 0.2.0: vTerm2 - libghostty-vt instead of xterm.js / WebView2
 Branch `vterm2`; tag `vterm-xterm-0.1.10` is the last xterm.js vTerm. Test hooks added: `text <t>` (typed, through the screen), `key <Ctrl+Shift+Name>`
 (a key through the screen's own handling), `wheel <notches>`, `selectall`, `copy`, `paste`, `shot <file.png>`; `dump` shows the front tab's last lines.

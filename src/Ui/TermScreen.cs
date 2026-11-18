@@ -861,6 +861,17 @@ namespace vTerm.Ui
             _e.ScrollBy(-notches * 3);
         }
 
+        /// <summary>The tests' "drag" command: press at one cell, drag to another, let go - the same gestures the mouse makes.</summary>
+        public void TestDrag(int c1, int r1, int c2, int r2)
+        {
+            if (_e == null) return;
+            Func<int, double> px = c => (PadL + (c + 0.5) * _cellW) * _dip;
+            Func<int, double> py = r => (PadT + (r + 0.5) * _cellH) * _dip;
+            _e.Gesture(Gt.GESTURE_PRESS, c1, r1, px(c1), py(r1), Geometry(), NowNs());
+            _e.Gesture(Gt.GESTURE_DRAG, c2, r2, px(c2), py(r2), Geometry(), 0);
+            _e.Gesture(Gt.GESTURE_RELEASE, c2, r2, px(c2), py(r2), Geometry(), 0);
+        }
+
         /// <summary>The tests' "wheel" command: notches up (positive) or down, at the middle of the screen.</summary>
         public void TestWheel(int notches)
         {
