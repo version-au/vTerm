@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.2.1
+## 0.2.1 · pre-release
 
 - Selecting with the mouse shows the highlight as you drag (it only appeared once the shell wrote something).
 
