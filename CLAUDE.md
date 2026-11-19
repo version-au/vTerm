@@ -4,10 +4,11 @@ vTerm is a Windows 11 terminal (C# / .NET 10, WPF) in vShell's look, part of V's
 cmd, WSL and SSH in tabs (ConPTY + libghostty-vt, drawn by vTerm), saved SSH connections with a side panel and SFTP files. It was vShell's
 Terminal module, moved out into an app of its own (2026-11-07). Owner: V (Steven).
 
-**vTerm2 (branch `vterm2`, 0.2.x, V 2026-11-18):** xterm.js in WebView2 replaced by libghostty-vt (Ghostty's terminal engine, a C
-library, MIT - `lib\libghostty-vt\`, its README says where the DLL came from) and vTerm's own WPF renderer. Shipped as pre-releases under
-the same name / settings; if V isn't happy, go back to tag `vterm-xterm-0.1.10` (the last xterm.js vTerm) - with a higher version
-number, the updater never goes down. Merge into `main` only when V says so. `bench\` (on main) is the test bench that compared them.
+**vTerm2 (0.2.x, V 2026-11-18):** xterm.js in WebView2 replaced by libghostty-vt (Ghostty's terminal engine, a C
+library, MIT - `lib\libghostty-vt\`, its README says where the DLL came from) and vTerm's own WPF renderer, under the same name /
+settings. Built on branch `vterm2` as pre-releases; **merged into `main` and released as 0.2.4 on 2026-11-19 (V)** - work happens on
+`main` again (`vterm2` points at the same commit). The last xterm.js vTerm is tag `vterm-xterm-0.1.10` - going back would need a higher
+version number, the updater never goes down. `bench\` is the test bench that compared them.
 Repo: https://github.com/version-au/vTerm (branch `main`, GPL-3.0). This machine's notes (working folder, remotes): `CLAUDE.local.md` (not in git).
 
 ## The plan (V, 2026-11-07)
