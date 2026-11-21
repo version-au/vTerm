@@ -3,6 +3,11 @@
 Test with a scratch settings folder so your own vTerm is never touched: `set VTERM_DATA_DIR=<scratch folder>` before starting
 `bin\Release\net10.0-windows\vTerm.exe`.
 
+## 0.2.5: the glass across monitors
+1. With the window see-through (Blur, Frosted or the wallpaper as it is): drag it slowly from one monitor onto the next and back - smooth, each part showing its own monitor's wallpaper, moving with the window.
+2. Drag it half off a screen's edge: the background keeps moving with it (it used to stop at the edge).
+3. Drag it around one monitor: smooth; let go - it's live at once (hover highlights), text as sharp as before.
+
 ## 0.2.4: colour emoji
 1. `Write-Host '😀 ✅ ❌ ⚠️ 🔥 🚀 🐳 ❤️ 💙 👍 👍🏽 👋🏿 👨‍👩‍👧 🏳️‍🌈 🧑‍💻 🇦🇺 |'`: all in colour and full size (two cells), the skin-toned thumb and the family as one picture each, the flag as letters (Windows has no flag emoji), and the `|` right after the last one.
 2. Emoji inside normal text (`build ✅ passed`), in a selection (highlighted), under the cursor, in a bold / coloured line; ✓ ✔ ☐ ★ (text symbols, no emoji marker) stay plain text in the text colour.

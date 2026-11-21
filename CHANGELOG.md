@@ -1,5 +1,9 @@
 # vTerm changelog
 
+## 0.2.5
+
+- The see-through background follows the window across monitors and past a screen's edge, and big windows drag smoothly (vSuite.Core 1.0.43).
+
 ## 0.2.4 · release
 
 - Emoji in colour, drawn by Windows as everywhere else.
