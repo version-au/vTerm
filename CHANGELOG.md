@@ -1,6 +1,6 @@
 # vTerm changelog
 
-## 0.2.6
+## 0.2.6 · release
 
 - Windows 11's snap layouts show when the pointer rests on the maximise button, if Windows' setting for them is on (vSuite.Core 1.0.46).
 
