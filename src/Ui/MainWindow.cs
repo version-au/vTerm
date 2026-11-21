@@ -81,6 +81,9 @@ namespace vTerm.Ui
             _root.Children.Add(_view);
             Content = _root;
             Buttons();
+            // Windows 11's snap layouts menu when the pointer rests on maximise (only while Windows' setting is on - else the plain button);
+            // the strip's buttons are drawn boxes, made again when the window changes, so the current one is looked up each time
+            vSuite.Ui.SnapLayouts.Attach(this, () => _maxBox, ToggleMax, (e, hot, pressed) => _view.StripButtonLook(e, hot));
 
             // a tab dragged out into the open: its new window goes where it was dropped (the tabs under the pointer)
             POINT? dropAt = adopt != null ? TerminalView.DropPoint : null;
@@ -219,10 +222,14 @@ namespace vTerm.Ui
             b.Add(Tuple.Create(Topmost ? "" : "", Topmost ? "Kept on top - click to let other windows cover it" : "Keep on top of other windows", (Action)TogglePin));
             b.Add(Tuple.Create("", "Minimise", (Action)delegate { WindowState = WindowState.Minimized; }));
             bool max = WindowState == WindowState.Maximized;
+            int maxAt = b.Count;
             b.Add(Tuple.Create(max ? "" : "", max ? "Restore" : "Maximise", (Action)ToggleMax));
             b.Add(Tuple.Create("", "Close", (Action)Close));
-            _view.SetButtons(b);
+            _maxBox = _view.SetButtons(b)[maxAt];
         }
+
+        /// <summary>The maximise box on the strip now (made again with the others) - for snap layouts.</summary>
+        FrameworkElement _maxBox;
 
         void TogglePin()
         {

@@ -248,12 +248,23 @@ namespace vTerm.Ui
         /// <summary>What goes first on the left of the strip (the window's icon and menu).</summary>
         public void SetLead(UIElement e) { _lead.Child = e; }
 
-        /// <summary>The buttons on the right of the strip: glyph, tooltip, click (pin / minimise / close …).</summary>
-        public void SetButtons(IList<Tuple<string, string, Action>> buttons)
+        /// <summary>The buttons on the right of the strip: glyph, tooltip, click (pin / minimise / close …). Returns them, in that order.</summary>
+        public IList<FrameworkElement> SetButtons(IList<Tuple<string, string, Action>> buttons)
         {
+            var made = new List<FrameworkElement>();
             _right.Children.Clear();
-            if (buttons != null) foreach (var b in buttons) _right.Children.Add(StripButton(b.Item1, b.Item2, b.Item3));
+            if (buttons != null) foreach (var b in buttons) { var e = StripButton(b.Item1, b.Item2, b.Item3); made.Add(e); _right.Children.Add(e); }
             if (_t != null) ApplyTheme(_t);
+            return made;
+        }
+
+        /// <summary>A strip button lit (the pointer on it) or plain, as its own hover does - for snap layouts, where Windows has the mouse.</summary>
+        public void StripButtonLook(FrameworkElement e, bool hot)
+        {
+            var b = e as Border;
+            if (b == null || _t == null) return;
+            b.Background = hot ? _t.Hover : Brushes.Transparent;
+            if (b.Child is TextBlock tb) tb.Foreground = hot ? _t.Fg : _t.FgDim;
         }
 
         /// <summary>The hide button on the right of the strip (the drop-down has one).</summary>
